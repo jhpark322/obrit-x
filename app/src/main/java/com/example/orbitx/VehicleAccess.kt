@@ -1,7 +1,9 @@
 package com.example.orbitx
 
 import ai.pleos.playground.vehicle.Vehicle
+import ai.pleos.playground.vehicle.api.model.area.DoorArea
 import ai.pleos.playground.vehicle.api.model.area.SeatArea
+import ai.pleos.playground.vehicle.constant.area.DoorValue
 import ai.pleos.playground.vehicle.api.model.capability.AccessType
 import ai.pleos.playground.vehicle.api.model.capability.AreaBounds
 import ai.pleos.playground.vehicle.constant.area.SeatValue
@@ -68,7 +70,18 @@ internal data class CabinClimateSnapshot(
     val coolingOn: Boolean?,
     val status: String,
     val occupiedZonePowered: Boolean,
-)
+) {
+    private fun seatsIn(zone: CabinClimateZone) = CabinSeat.entries.filter { it.value in zone.seats }
+    private fun emptyZone(zone: CabinClimateZone) = seatsIn(zone).let { seats ->
+        seats.isNotEmpty() && seats.all { occupied[it] == false }
+    }
+
+    /** Climate zones powered on although every seat they serve is empty: energy spent on nobody. */
+    val idleZones: List<CabinClimateZone> get() = zones.filter { it.powered == true && emptyZone(it) }
+    /** Climate zones kept off because their seats are empty. */
+    val savingZones: List<CabinClimateZone> get() = zones.filter { it.powered == false && emptyZone(it) }
+    fun seatLabels(zones: List<CabinClimateZone>) = zones.flatMap(::seatsIn).distinct().joinToString(", ") { it.label }
+}
 
 internal data class EfficiencyReading(val value: Float, val period: String)
 internal data class DrivingTelemetry(
@@ -230,6 +243,67 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
     }
 
     suspend fun readLeagueModel(): String? = readCarProperty<String>(VehiclePropertyIds.INFO_MODEL)
+
+    /** True when all four passenger doors report locked, false if any is unlocked, null if unreadable. */
+    suspend fun readDoorsLocked(): Boolean? {
+        val vehicle = sdk ?: return null
+        if (context.checkSelfPermission(DOOR_READ) != PackageManager.PERMISSION_GRANTED) return null
+        // Many HALs (including Pleos Connect 2.1.0) expose DOOR_LOCK only as one combined area for all four doors.
+        readVehicleValue<Boolean> { done, failed -> vehicle.getDoor().getDoorLockState(AllPassengerDoors, done, failed) }
+            ?.let { return it }
+        val states = PassengerDoors.map { door ->
+            readVehicleValue<Boolean> { done, failed -> vehicle.getDoor().getDoorLockState(DoorArea(door), done, failed) }
+        }
+        return when {
+            states.any { it == false } -> false
+            states.all { it == true } -> true
+            else -> null
+        }
+    }
+
+    /**
+     * Locks or unlocks all passenger doors through the Vehicle SDK, only while parked (gear P),
+     * then reads the doors back so the screen shows the vehicle's state rather than the request.
+     */
+    suspend fun setDoorsLocked(lock: Boolean): Boolean? {
+        val vehicle = sdk ?: return null
+        if (context.checkSelfPermission(DOOR_CONTROL) != PackageManager.PERMISSION_GRANTED) return null
+        if (!canWriteClimate(vehicle)) return null
+        val combined = climateCommand { done, failed ->
+            vehicle.getDoor().setDoorLock(AllPassengerDoors, lock, { _, _ -> done() }, failed)
+        }
+        if (!combined) PassengerDoors.forEach { door ->
+            climateCommand { done, failed ->
+                vehicle.getDoor().setDoorLock(DoorArea(door), lock, { _, _ -> done() }, failed)
+            }
+        }
+        delay(250)
+        return readDoorsLocked()
+    }
+
+    /** Measured cabin temperature (°C) from the HVAC, trying the area layouts vehicles commonly expose. */
+    suspend fun readCabinTemperatureC(): Float? {
+        val vehicle = sdk ?: return null
+        val hvac = vehicle.getHVAC()
+        val areas = listOf(
+            SeatArea(SeatValue.ROW_1_LEFT),
+            FrontSeats,
+            SeatArea(SeatValue.ROW_1_LEFT, SeatValue.ROW_1_RIGHT, SeatValue.ROW_2_LEFT, SeatValue.ROW_2_RIGHT),
+        )
+        for (area in areas) {
+            readVehicleValue<Float> { done, failed ->
+                hvac.getHvacTemperatureCurrent(area, TemperatureUnit.CELSIUS, done, failed)
+            }?.takeIf { it.isFinite() && it in -30f..65f }?.let { return it }
+        }
+        return null
+    }
+
+    /** Vehicle-estimated remaining range in km (the SDK reports meters). */
+    suspend fun readRangeKm(): Float? {
+        val vehicle = sdk ?: return null
+        return readVehicleValue(vehicle.getOdometer()::getRangeRemainingDistance)
+            ?.takeIf { it.isFinite() && it > 0f }?.div(1_000f)
+    }
 
     private suspend inline fun <reified T : Any> readCarProperty(property: Int): T? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -710,6 +784,10 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
         const val TAG = "OrbitVehicle"
         const val CLIMATE_CONTROL = "pleos.car.permission.CONTROL_CAR_CLIMATE"
         const val SEAT_CONTROL = "pleos.car.permission.CONTROL_CAR_SEATS"
+        const val DOOR_READ = "pleos.car.permission.CAR_DOORS"
+        const val DOOR_CONTROL = "pleos.car.permission.CONTROL_CAR_DOORS"
         val FrontSeats = SeatArea(SeatValue.ROW_1_LEFT, SeatValue.ROW_1_RIGHT)
+        val PassengerDoors = listOf(DoorValue.ROW_1_LEFT, DoorValue.ROW_1_RIGHT, DoorValue.ROW_2_LEFT, DoorValue.ROW_2_RIGHT)
+        val AllPassengerDoors = DoorArea(*PassengerDoors.toTypedArray())
     }
 }
