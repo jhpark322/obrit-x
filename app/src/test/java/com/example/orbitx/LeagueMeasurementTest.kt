@@ -6,6 +6,19 @@ import org.junit.Test
 
 class LeagueMeasurementTest {
     @Test
+    fun monthlyRecordJoinsExamplePodiumOnlyWhenEligible() {
+        val examples = listOf("블루웨이" to 6.4, "해안러너" to 5.9, "이브닝로드" to 5.6)
+        val value = leagueEfficiency(1483f, 36.5f, LeagueMinimumEnergyKwh)
+        assertEquals(listOf("jhp", "블루웨이", "해안러너", "이브닝로드"),
+            leaguePreviewRanking(examples, 1483f, value, "jhp").map { it.name })
+        assertEquals(3, leaguePreviewRanking(examples, 499.9f, value, "jhp").size)
+        assertEquals(3, leaguePreviewRanking(examples, 500f,
+            leagueEfficiency(500f, .1f, LeagueMinimumEnergyKwh), "jhp").size)
+        val fourth = leaguePreviewRanking(examples, 500f, 5.0, "jhp")
+        assertEquals(LeagueEntry("jhp", 5.0, true), fourth.last())
+    }
+
+    @Test
     fun chargingBetweenDrivesDoesNotCountAsEnergyUse() {
         val start = LeagueVehicleSample(100f, 60f)
         val firstStop = LeagueVehicleSample(112f, 58f)

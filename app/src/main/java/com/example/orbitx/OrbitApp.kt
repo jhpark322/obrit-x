@@ -1317,6 +1317,24 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
     val series = if (browsing) otherSeries?.takeIf { it in options } ?: options.first() else mySeries
     val demoEfficiency = 6.0
     val isDemoSeries = series == LeagueSeries.Ioniq5
+    val measuredEfficiency = when (ownSeries?.unit) {
+        "km/kWh" -> data.monthlyEvEstimate?.let {
+            leagueEfficiency(it.distanceKm, it.energyKwh, LeagueMinimumEnergyKwh)
+        }
+        "km/L" -> data.monthlyFuelEstimate?.let {
+            leagueEfficiency(it.distanceKm, it.fuelLiters, LeagueMinimumFuelLiters)
+        }
+        else -> null
+    }
+    val ranking = when {
+        series == null -> emptyList()
+        browsing -> leaguePreviewRanking(series.entries, null, null, "")
+        showDemo -> leaguePreviewRanking(
+            series.entries, data.leagueDistanceKm.toFloat(), demoEfficiency, data.displayName.ifBlank { "내 시연 기록" },
+        )
+        else -> leaguePreviewRanking(series.entries, data.monthlyVehicleDistanceKm, measuredEfficiency, data.displayName)
+    }
+    val myRank = ranking.indexOfFirst { it.isMine }.takeIf { it >= 0 }?.plus(1)
     val season = data.leagueSeason
     val deadline = season.atEndOfMonth()
     if (!browsing) {
@@ -1350,7 +1368,7 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
             }
         }
     } else if (vehicle != null) {
-        LeagueVehicleRecord(data, telemetry, loading, mySeries?.unit)
+        LeagueVehicleRecord(data, telemetry, loading, mySeries?.unit, myRank)
         if (mySeries?.unit != "km/kWh" && !canReadFuel) {
             TextButton(onClick = { fuelPermissionRequest.launch(fuelPermission) }, enabled = parked,
                 modifier = Modifier.heightIn(min = 48.dp)) { Text("연료량 읽기 허용") }
@@ -1379,10 +1397,6 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
         }
     }
     if (series == null) return
-    val ranking = if (!browsing && showDemo && isDemoSeries && data.hasLeagueDemo) {
-        val displayName = data.displayName.ifBlank { "내 시연 기록" }
-        (series.entries + (displayName to demoEfficiency)).sortedByDescending { it.second }
-    } else series.entries
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(OrbitPaper),
     ) {
@@ -1414,15 +1428,17 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
                 Text("마감  ${deadline.year}년 ${deadline.monthValue}월 ${deadline.dayOfMonth}일", color = Muted)
             }
             Spacer(Modifier.height(6.dp))
-            Eyebrow("시연용 순위 · 시즌 시상 예시")
+            Eyebrow(if (!showDemo && myRank != null) "내 차량 기록 + 예시 참가자 · 시상 예시"
+                else "시연용 순위 · 시즌 시상 예시")
             LeaguePodium(ranking, series)
-            ranking.drop(3).forEachIndexed { index, (name, value) ->
+            ranking.drop(3).forEachIndexed { index, (name, value, isMine) ->
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("${index + 4}위", color = Muted)
-                    Text(name, Modifier.weight(1f))
+                    Text(if (isMine) "${name} · 내 기록" else name, Modifier.weight(1f),
+                        color = if (isMine) OrbitBlue else OrbitInk)
                     Text("${efficiency(value)} ${series.unit}")
                 }
             }
@@ -1431,7 +1447,7 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
 }
 
 @Composable
-private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, loading: Boolean, unit: String?) {
+private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, loading: Boolean, unit: String?, myRank: Int?) {
     val distance = data.monthlyVehicleDistanceKm
     val ev = data.monthlyEvEstimate
     val fuel = data.monthlyFuelEstimate
@@ -1448,8 +1464,13 @@ private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, l
                     style = MaterialTheme.typography.titleMedium)
             }
             LeagueDistanceGauge(distance)
-            Text(if (distance >= LeagueMinimumDistanceKm) "순위 등록 거리 충족"
-                else "순위 등록까지 ${efficiency((LeagueMinimumDistanceKm - distance).toDouble())} km", color = Muted)
+            val rankStatus = when {
+                myRank != null -> "내 기록 · 예시 순위 ${myRank}위"
+                distance < LeagueMinimumDistanceKm -> "순위 기준까지 ${efficiency((LeagueMinimumDistanceKm - distance).toDouble())} km"
+                unit == null -> "500 km 충족 · 내 차종 리그 확인 필요"
+                else -> "500 km 충족 · 전비·연비 측정값 대기 중"
+            }
+            Text(rankStatus, color = if (myRank != null) OrbitBlue else Muted)
         } else {
             Text(if (loading) "차량에서 주행거리를 읽고 있어요." else "이달 주행거리를 확인할 수 없어요.", color = Muted)
             Text("순위 등록 기준 · 월 누적 $LeagueMinimumDistanceKm km", color = OrbitBlue)
@@ -1465,10 +1486,10 @@ private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, l
             )
         }
         if (unit != "km/L" && (unit != null || ev != null || telemetry?.evEfficiency != null)) {
-            MonthlyEfficiency("전비", "km/kWh", ev?.distanceKm, ev?.energyKwh, .2f)
+            MonthlyEfficiency("전비", "km/kWh", ev?.distanceKm, ev?.energyKwh, LeagueMinimumEnergyKwh)
         }
         if (unit != "km/kWh" && (unit != null || fuel != null || telemetry?.fuelEconomy != null)) {
-            MonthlyEfficiency("연비", "km/L", fuel?.distanceKm, fuel?.fuelLiters, .5f)
+            MonthlyEfficiency("연비", "km/L", fuel?.distanceKm, fuel?.fuelLiters, LeagueMinimumFuelLiters)
         }
         if (unit == null && ev == null && fuel == null && telemetry?.evEfficiency == null && telemetry?.fuelEconomy == null) {
             Text("이달 전비·연비 · 차량 측정 신호 대기 중", color = Muted)
@@ -1487,11 +1508,8 @@ private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, l
 
 @Composable
 private fun MonthlyEfficiency(label: String, unit: String, distance: Float?, used: Float?, minimum: Float) {
-    val value = if (distance != null && used != null && used >= minimum) {
-        "${efficiency((distance / used).toDouble())} $unit"
-    } else {
-        "측정 데이터 수집 중"
-    }
+    val value = leagueEfficiency(distance, used, minimum)?.let { "${efficiency(it)} $unit" }
+        ?: "측정 데이터 수집 중"
     Text("이달 추정 $label · $value", color = OrbitBlue, style = MaterialTheme.typography.titleMedium)
     distance?.let { Text("효율 계산에 포함된 거리 ${efficiency(it.toDouble())} km", color = Muted) }
 }
@@ -1593,7 +1611,7 @@ private fun LeagueCarImage(series: LeagueSeries, modifier: Modifier, opacity: Fl
 }
 
 @Composable
-private fun LeaguePodium(ranking: List<Pair<String, Double>>, series: LeagueSeries) {
+private fun LeaguePodium(ranking: List<LeagueEntry>, series: LeagueSeries) {
     val prizes = listOf("50,000 P", "20,000 P", "10,000 P")
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -1601,7 +1619,7 @@ private fun LeaguePodium(ranking: List<Pair<String, Double>>, series: LeagueSeri
         verticalAlignment = Alignment.Bottom,
     ) {
         listOf(2 to 62.dp, 1 to 96.dp, 3 to 50.dp).forEach { (rank, height) ->
-            val (name, value) = ranking[rank - 1]
+            val (name, value, isMine) = ranking[rank - 1]
             val step = if (rank == 1) series.accent else Color(0xFFB2BBC6)
             Column(
                 Modifier.weight(if (rank == 1) 1.17f else 1f),
@@ -1609,7 +1627,8 @@ private fun LeaguePodium(ranking: List<Pair<String, Double>>, series: LeagueSeri
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 LeagueMedal(rank)
-                Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium, color = if (isMine) OrbitBlue else OrbitInk)
                 Text("${efficiency(value)} ${series.unit}", color = Muted, style = MaterialTheme.typography.labelMedium)
                 Text(prizes[rank - 1], color = OrbitBlue,
                     style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)

@@ -15,6 +15,32 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal const val LeagueMinimumDistanceKm = 500
+internal const val LeagueMinimumEnergyKwh = .2f
+internal const val LeagueMinimumFuelLiters = .5f
+
+internal fun leagueEfficiency(distanceKm: Float?, consumed: Float?, minimum: Float): Double? {
+    if (distanceKm == null || !distanceKm.isFinite() || distanceKm <= 0f ||
+        consumed == null || !consumed.isFinite() || consumed < minimum
+    ) return null
+    return distanceKm.toDouble() / consumed
+}
+
+internal data class LeagueEntry(val name: String, val efficiency: Double, val isMine: Boolean = false)
+
+internal fun leaguePreviewRanking(
+    examples: List<Pair<String, Double>>,
+    monthlyDistanceKm: Float?,
+    efficiency: Double?,
+    displayName: String,
+): List<LeagueEntry> {
+    val ranking = examples.map { (name, value) -> LeagueEntry(name, value) }
+    if (monthlyDistanceKm == null || !monthlyDistanceKm.isFinite() ||
+        monthlyDistanceKm < LeagueMinimumDistanceKm || efficiency == null ||
+        !efficiency.isFinite() || efficiency <= 0.0
+    ) return ranking
+    return (ranking + LeagueEntry(displayName.ifBlank { "내 기록" }, efficiency, isMine = true))
+        .sortedByDescending { it.efficiency }
+}
 private const val PointUnit = 1_000
 private const val MonthlyPointLimit = 80_000
 
