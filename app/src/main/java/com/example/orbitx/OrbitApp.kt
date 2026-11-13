@@ -363,7 +363,12 @@ internal fun OrbitApp(
                             page = Page.Points
                         }
                     }
-                    Page.Points -> Points(data, showTitle = topLevel)
+                    Page.Points -> Points(data, showTitle = topLevel, canReset = !locked) {
+                        if (!locked) {
+                            missionNavigation?.clearMissionActivity()
+                            data.resetActivityRecords()
+                        }
+                    }
                     Page.League, Page.OtherLeagues -> League(
                         data, vehicle, parked, page == Page.OtherLeagues,
                         onBrowse = { page = Page.OtherLeagues },
@@ -960,7 +965,7 @@ private fun OtaExperience(data: OrbitData, parked: Boolean, onPoints: () -> Unit
     var feedback by rememberSaveable { mutableStateOf<String?>(null) }
     val review = data.otaReview
 
-    Intro("주행 정보 화면의 도어 잠금", "2026.10.30 현대차 발표 · 더 뉴 그랜저 대상 Pleos Connect OTA")
+    Text("주행 정보 화면의 도어 잠금", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
     Panel {
         Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(false to "업데이트 전", true to "업데이트 후").forEach { (updated, label) ->
@@ -1375,7 +1380,8 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
     }
     if (series == null) return
     val ranking = if (!browsing && showDemo && isDemoSeries && data.hasLeagueDemo) {
-        (series.entries + ("내 시연 기록" to demoEfficiency)).sortedByDescending { it.second }
+        val displayName = data.displayName.ifBlank { "내 시연 기록" }
+        (series.entries + (displayName to demoEfficiency)).sortedByDescending { it.second }
     } else series.entries
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(OrbitPaper),
@@ -1422,7 +1428,6 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
             }
         }
     }
-    Text("속도와 도착 시간은 순위에 반영하지 않아요.", color = Muted)
 }
 
 @Composable
@@ -2360,8 +2365,26 @@ private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier,
 }
 
 @Composable
-private fun Points(data: OrbitData, showTitle: Boolean) {
+private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onReset: () -> Unit) {
     var editingName by remember { mutableStateOf(false) }
+    var confirmingReset by remember { mutableStateOf(false) }
+    var resetDone by remember { mutableStateOf(false) }
+    if (confirmingReset && canReset) {
+        AlertDialog(
+            onDismissRequest = { confirmingReset = false },
+            containerColor = OrbitPaper,
+            title = { Text("기록을 초기화할까요?") },
+            text = { Text("미션 진행과 완료 내역, 체험 의견, 포인트, 이달 주행 및 리그 기록을 지워요. 저장한 이름과 공조 설정은 유지돼요.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onReset()
+                    confirmingReset = false
+                    resetDone = true
+                }) { Text("초기화", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmingReset = false }) { Text("취소") } },
+        )
+    }
     if (editingName) {
         var name by remember { mutableStateOf(data.displayName) }
         AlertDialog(
@@ -2395,7 +2418,7 @@ private fun Points(data: OrbitData, showTitle: Boolean) {
     Panel {
         Text("최근 참여 내역", style = MaterialTheme.typography.titleLarge)
         if (data.lastMission == null && data.comparison == null && data.otaReview == null && data.chargingOtaReview == null &&
-            data.labSubmissions.isEmpty() && data.syncMissionFeedback == null
+            data.labSubmissions.isEmpty() && data.syncMissionFeedback == null && data.cabinTrialFeedback == null
         ) {
             Text("아직 완료한 미션이나 체험이 없어요.", color = Muted)
         }
@@ -2434,6 +2457,14 @@ private fun Points(data: OrbitData, showTitle: Boolean) {
             TextButton(onClick = { editingName = true }, modifier = Modifier.heightIn(min = 64.dp)) {
                 Text(if (data.displayName.isBlank()) "이름 설정" else "이름 변경")
             }
+        }
+    }
+    Panel {
+        Text("기록 관리", style = MaterialTheme.typography.titleMedium)
+        if (resetDone) Text("기록을 초기화했어요. 미션을 다시 시작할 수 있어요.", color = Muted)
+        OutlinedButton(onClick = { confirmingReset = true }, enabled = canReset,
+            modifier = Modifier.heightIn(min = 56.dp)) {
+            Text("기록 초기화")
         }
     }
 }

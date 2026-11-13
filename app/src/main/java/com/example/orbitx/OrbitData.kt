@@ -336,11 +336,55 @@ internal class OrbitData(context: Context) {
         private set
     val availableSyncAward: Int
         get() = if (syncMissionFeedback == null) capMonthly(PointUnit, LocalDate.now()) else 0
-    val chargingOtaReview = loadOtaReview("otaChargingCard")
+    var chargingOtaReview by mutableStateOf(loadOtaReview("otaChargingCard"))
+        private set
     var otaReview by mutableStateOf(loadOtaReview("otaDriveViewDoorLock"))
         private set
     var labSubmissions by mutableStateOf(loadLabSubmissions())
         private set
+
+    fun resetActivityRecords() {
+        prefs.edit().clear()
+            .putString("displayName", displayName)
+            .putBoolean("automaticCabinClimate", automaticCabinClimate)
+            .putBoolean("thousandPointScale", true)
+            .putBoolean("flatDriveAward", true)
+            .apply()
+
+        balance = 0
+        activeMission = null
+        linkedMissionDestination = null
+        pendingMissionArrival = null
+        lastDriveDay = null
+        lastMission = null
+        lastMissionDestination = null
+        lastMissionSimulated = false
+        lastFeedback = null
+        lastPlayAward = 0
+        comparison = null
+        lastLabAward = 0
+        cabinTrialDays = emptySet()
+        cabinTrialFeedback = null
+        cabinTrialAward = 0
+        syncMissionFeedback = null
+        syncMissionAward = 0
+        otaReview = null
+        chargingOtaReview = null
+        labSubmissions = emptyList()
+
+        leagueDemoSeason = null
+        leagueDemoDistance = 0
+        monthlyVehicleDistanceKm = null
+        leagueEnergyAvailable = null
+        lastLeagueSample = null
+        lastSampleAt = 0
+        lastSampleMonth = null
+        evEstimateMonth = null
+        evEstimate = EvEstimateTotals(0f, 0f)
+        fuelEstimateMonth = null
+        fuelEstimate = FuelEstimateTotals(0f, 0f)
+        refreshLeagueSeason()
+    }
 
     val availableSubmissionAward: Int
         get() = submissionAward(LocalDate.now())

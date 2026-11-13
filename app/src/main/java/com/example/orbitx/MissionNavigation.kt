@@ -228,6 +228,12 @@ internal class MissionNavigation(
         endRequest(null)
     }
 
+    fun clearMissionActivity() {
+        release()
+        screenStatus = null
+        context.getSystemService(NotificationManager::class.java)?.cancel(COMPLETION_NOTIFICATION_ID)
+    }
+
     fun release() {
         screenTimeout?.cancel()
         screenTimeout = null
@@ -257,7 +263,7 @@ internal class MissionNavigation(
         )
         val pending = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val summary = if (result.award > 0) "${result.title} · +${formatPoints(result.award)}" else result.title
-        manager.notify(1001, Notification.Builder(context, CHANNEL)
+        manager.notify(COMPLETION_NOTIFICATION_ID, Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.orbit_launcher_mark)
             .setContentTitle(if (result.simulated) "ORBIT X 모의 안내 도착" else "ORBIT X 도착 인증 완료")
             .setContentText(summary)
@@ -268,5 +274,6 @@ internal class MissionNavigation(
 
     private companion object {
         const val CHANNEL = "mission-completion"
+        const val COMPLETION_NOTIFICATION_ID = 1001
     }
 }
