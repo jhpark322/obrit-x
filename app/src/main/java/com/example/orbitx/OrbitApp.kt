@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -112,6 +113,8 @@ import java.util.Locale
 import kotlin.math.abs
 
 private val OrbitBlue: Color @Composable get() = MaterialTheme.colorScheme.primary
+/** Warning tint for energy waste (HVAC running for empty seats). */
+private val Amber: Color @Composable get() = if (LocalOrbitDark.current) Color(0xFFF2B54A) else Color(0xFF9A5B00)
 private val OrbitBackground: Color @Composable get() = MaterialTheme.colorScheme.background
 private val OrbitPaper: Color @Composable get() = MaterialTheme.colorScheme.surface
 private val OrbitInk: Color @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -141,13 +144,14 @@ internal fun OrbitApp(
     missionNavigation: MissionNavigation?,
     onLinkDestination: () -> Unit,
 ) {
-    var page by remember { mutableStateOf(Page.Home) }
+    // Saveable so a configuration change (theme, multi-window resize) does not throw the user back to Home.
+    var page by rememberSaveable { mutableStateOf(Page.Home) }
     var trial by remember { mutableStateOf<ClimateTrial?>(null) }
     val climateTask = ClimateTask.PassengerArrival
     var results by remember { mutableStateOf(emptyMap<Variant, TrialResult>()) }
     var first by remember { mutableStateOf(Variant.A) }
     var interrupted by remember { mutableStateOf(false) }
-    var pointsOrigin by remember { mutableStateOf(Page.Home) }
+    var pointsOrigin by rememberSaveable { mutableStateOf(Page.Home) }
     var otaOrigin by rememberSaveable { mutableStateOf(Page.Lab) }
     var climateOrigin by rememberSaveable { mutableStateOf(Page.Lab) }
     var openClimateComparison by rememberSaveable { mutableStateOf(false) }
@@ -282,14 +286,19 @@ internal fun OrbitApp(
                     Page.Trip -> Trip(
                         data, vehicle, parked, missionNavigation, onLinkDestination,
                         onArrival = { page = Page.Arrival },
+                        onClimate = {
+                            climateOrigin = Page.Trip
+                            openClimateComparison = false
+                            page = Page.ClimateLab
+                        },
                     )
                     Page.Arrival -> if (parked) {
                         Arrival { feedback ->
-                            if (parked && data.linkedMissionDestination == null) {
-                                missionNavigation?.clearMissionLink()
+                            if (parked) {
+                                // Demo arrival keeps the linked place for the drive journal, then clears the link.
                                 data.finishMission(feedback)
-                                pointsOrigin = Page.Trip
-                                page = Page.Points
+                                missionNavigation?.clearMissionLink()
+                                page = Page.Trip
                             }
                         }
                     }
@@ -372,9 +381,14 @@ internal fun OrbitApp(
                     Page.League, Page.OtherLeagues -> League(
                         data, vehicle, parked, page == Page.OtherLeagues,
                         onBrowse = { page = Page.OtherLeagues },
+                        onClimate = {
+                            climateOrigin = Page.League
+                            openClimateComparison = false
+                            page = Page.ClimateLab
+                        },
                     )
                     Page.SyncMission -> SyncMission(data, vehicle, parked, onMissions = { page = Page.Play })
-                    Page.Ota -> OtaExperience(data, parked, onPoints = {
+                    Page.Ota -> OtaExperience(data, vehicle, parked, onPoints = {
                         pointsOrigin = Page.Ota
                         page = Page.Points
                     })
@@ -388,7 +402,8 @@ internal fun OrbitApp(
         val selectedTab = when (page) {
             Page.Home, Page.Play, Page.Lab, Page.Points -> page
             Page.Trip, Page.Arrival, Page.League, Page.OtherLeagues, Page.SyncMission -> Page.Play
-            Page.ClimateLab, Page.Trial, Page.Between, Page.Preference, Page.Insight -> climateOrigin
+            // X-LAB content always lights the X-LAB tab; back still returns to where the user came from.
+            Page.ClimateLab, Page.Trial, Page.Between, Page.Preference, Page.Insight -> Page.Lab
             Page.LabFeedback -> Page.Lab
             Page.Ota -> otaOrigin
         }
@@ -642,6 +657,15 @@ private fun VehicleHeroCopy(modifier: Modifier, availableAward: Int, displayName
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
+            "Every Drive Shapes What's Next.",
+            color = OrbitBlue,
+            style = MaterialTheme.typography.labelLarge,
+            letterSpacing = 0.4.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
             if (displayName.isBlank()) "PLEOS CONNECT" else "${displayName}님",
             color = Muted,
             style = MaterialTheme.typography.titleMedium,
@@ -686,12 +710,15 @@ private fun Play(
             val selected = showMissions == missions
             val shape = RoundedCornerShape(10.dp)
             Box(
-                Modifier.weight(1f).heightIn(min = 50.dp).clip(shape)
-                    .background(if (selected) Glass else OrbitPaper).border(1.dp, Border, shape)
+                Modifier.weight(1f).heightIn(min = 64.dp).clip(shape)
+                    .background(if (selected) MaterialTheme.colorScheme.inverseSurface else OrbitPaper)
+                    .border(1.dp, Border, shape)
                     .selectable(selected = selected, role = Role.Tab) { onMissionTab(missions) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(title, style = MaterialTheme.typography.labelLarge)
+                Text(title, style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (selected) MaterialTheme.colorScheme.inverseOnSurface else Muted)
             }
         }
     }
@@ -957,9 +984,23 @@ private fun FeatureCard(
 private fun otaStatus(data: OrbitData) = if (data.otaReview != null) "평가 완료" else "체험하기"
 
 @Composable
-private fun OtaExperience(data: OrbitData, parked: Boolean, onPoints: () -> Unit) {
+private fun OtaExperience(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, onPoints: () -> Unit) {
     var showUpdated by rememberSaveable { mutableStateOf(true) }
     var locked by rememberSaveable { mutableStateOf(false) }
+    // Real door control: null = not readable (in-app simulation), otherwise the vehicle's reported state.
+    var vehicleLocked by remember { mutableStateOf<Boolean?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(vehicle, parked) {
+        vehicleLocked = null
+        if (vehicle != null && parked) {
+            while (true) {
+                if (!sending) vehicle.readDoorsLocked()?.let { vehicleLocked = it; locked = it }
+                delay(2_000)
+            }
+        }
+    }
+    val realControl = vehicleLocked != null
     var triedLock by rememberSaveable { mutableStateOf(false) }
     var triedUnlock by rememberSaveable { mutableStateOf(false) }
     var feedback by rememberSaveable { mutableStateOf<String?>(null) }
@@ -982,7 +1023,7 @@ private fun OtaExperience(data: OrbitData, parked: Boolean, onPoints: () -> Unit
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("주행 정보", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                Chip("앱 내 체험")
+                Chip(if (realControl) "실제 차량 도어 제어" else "앱 내 체험")
             }
             Text("0 km/h   ·   P", style = MaterialTheme.typography.headlineSmall)
             if (showUpdated) {
@@ -994,11 +1035,34 @@ private fun OtaExperience(data: OrbitData, parked: Boolean, onPoints: () -> Unit
                     Text(if (locked) "모든 도어 잠김" else "모든 도어 잠금 해제",
                         Modifier.weight(1f), color = if (locked) Teal else Muted,
                         style = MaterialTheme.typography.titleMedium)
-                    Action(if (locked) "잠금 해제" else "모든 도어 잠그기", enabled = parked, minHeight = 56.dp) {
-                        if (locked) triedUnlock = true else triedLock = true
-                        locked = !locked
+                    Action(
+                        when {
+                            sending -> "차량에 전송 중"
+                            locked -> "잠금 해제"
+                            else -> "모든 도어 잠그기"
+                        },
+                        enabled = parked && !sending, minHeight = 56.dp,
+                    ) {
+                        val target = !locked
+                        if (realControl && vehicle != null) {
+                            sending = true
+                            scope.launch {
+                                val result = vehicle.setDoorsLocked(target)
+                                if (result != null) {
+                                    vehicleLocked = result
+                                    locked = result
+                                    if (result == target) { if (target) triedLock = true else triedUnlock = true }
+                                }
+                                sending = false
+                            }
+                        } else {
+                            if (target) triedLock = true else triedUnlock = true
+                            locked = target
+                        }
                     }
                 }
+                if (realControl) Text("버튼을 누르면 Vehicle SDK로 네 문의 잠금을 바꾸고, 차량이 보고한 상태를 다시 읽어 표시해요.",
+                    color = Muted, style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text("이 화면에는 도어 잠금 버튼이 없어요.", color = Muted)
             }
@@ -1090,122 +1154,372 @@ private fun Trip(
     navigation: MissionNavigation?,
     onLinkDestination: () -> Unit,
     onArrival: () -> Unit,
+    onClimate: () -> Unit,
 ) {
     val activeMission = data.activeMission
     val linked = data.linkedMissionDestination
     val currentMode = DriveMode.entries.firstOrNull { it.title == activeMission }
     var changingMode by rememberSaveable { mutableStateOf(false) }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
     var batteryPercent by remember { mutableStateOf<Int?>(null) }
+    var batteryKwh by remember { mutableStateOf<Float?>(null) }
+    var rangeKm by remember { mutableStateOf<Float?>(null) }
     var occupied by remember { mutableStateOf<Boolean?>(null) }
+    var cabinC by remember { mutableStateOf<Float?>(null) }
     LaunchedEffect(vehicle, parked) {
         batteryPercent = null
+        batteryKwh = null
+        rangeKm = null
         occupied = null
+        cabinC = null
         if (vehicle != null && parked) {
             while (true) {
                 batteryPercent = vehicle.readBatteryPercent()
+                batteryKwh = vehicle.readLeagueSample()?.batteryKwh?.takeIf { it > 0f }
+                rangeKm = vehicle.readRangeKm()
                 occupied = vehicle.readPassengerOccupied()
+                cabinC = vehicle.readCabinTemperatureC()
                 delay(5_000)
+            }
+        }
+    }
+    // Real range: remaining battery energy x my measured efficiency (this month, else my last drive).
+    val myEfficiency = (data.monthlyEvEstimate?.let { leagueEfficiency(it.distanceKm, it.energyKwh, LeagueMinimumEnergyKwh) }
+        ?: data.lastTrip?.efficiency)?.takeIf { it in PlausibleEvEfficiency }
+    LaunchedEffect(navigation, parked, activeMission) {
+        if (navigation != null && parked && activeMission != null) {
+            navigation.loadRecentPlaces()
+            while (true) {
+                navigation.refreshRoute()
+                delay(10_000)
             }
         }
     }
     val repeatDays = data.recentRepeatedDriveDays()
     val battery = batteryPercent
+    val now = java.time.LocalDateTime.now()
+    val commute = now.dayOfWeek.value <= 5 && (now.hour in 7..8 || now.hour in 17..18)
     val (recommended, reason) = when {
         battery != null && battery <= 25 -> DriveMode.Charge to "배터리 잔량이 $battery%예요."
         occupied == true -> DriveMode.Together to "동승자가 있어 함께 산책하기 좋은 곳을 골랐어요."
+        commute -> DriveMode.Easy to "평일 출퇴근 시간이에요. 자주 가는 곳으로 바로 안내해요."
         repeatDays >= 3 -> DriveMode.Scenic to "최근 7일 중 ${repeatDays}일 동안 같은 곳에 도착했어요."
         else -> DriveMode.Scenic to "오늘은 풍경이 좋은 곳에 들러보세요."
     }
-    Panel {
-        Eyebrow("오늘의 추천")
-        Text(recommended.title, style = MaterialTheme.typography.headlineMedium)
-        Text(reason, color = Muted)
-        if (navigation != null) {
-            Action(recommended.searchLabel, enabled = parked, minHeight = 56.dp) {
-                navigation.openNavigation(recommended.searchRequest)
-            }
-            navigation.screenStatus?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodyMedium) }
-        }
+    SideEffect {
+        data.recommendedDriveMode = recommended.title
+        data.recommendedReason = reason
     }
-    if (activeMission == null || changingMode) {
+    // Before a drive: recommendation + departure check. During a drive: one compact card (below).
+    if (activeMission == null || changingMode) AdaptivePair(matchHeight = true, first = { pane ->
+        Panel(pane) {
+            Eyebrow("오늘의 추천")
+            Text(recommended.title, style = MaterialTheme.typography.headlineMedium)
+            Text(reason, color = Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (navigation != null) {
+                    // Opening navigation is enough: the drive starts by itself when guidance begins.
+                    Action(recommended.searchLabel, enabled = parked, minHeight = 56.dp) {
+                        navigation.openNavigation(recommended.searchRequest)
+                    }
+                }
+                if (activeMission == null) TextButton(onClick = { showPicker = !showPicker }, modifier = Modifier.heightIn(min = 56.dp)) {
+                    Text(if (showPicker) "접기" else "다른 모드 고르기", color = Muted)
+                }
+            }
+        }
+    }, second = { pane ->
+        Panel(pane) {
+            Eyebrow("출발 전 확인  ·  차량 신호")
+            val energy = batteryKwh
+            val efficiencyNow = myEfficiency
+            val range = rangeKm
+            when {
+                range != null -> {
+                    Text("왕복 가능 약 ${efficiency((range / 2).toDouble())} km", style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold)
+                    Text(
+                        "차량 주행가능거리 ${efficiency(range.toDouble())} km" +
+                            (energy?.let { "  ·  남은 에너지 ${efficiency(it.toDouble())} kWh" } ?: "") +
+                            (efficiencyNow?.let { "  ·  내 전비 ${efficiency(it)} km/kWh" } ?: ""),
+                        color = Muted, style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                energy != null && efficiencyNow != null -> {
+                    val range = energy * efficiencyNow
+                    Text("왕복 가능 약 ${efficiency(range / 2)} km", style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold)
+                    Text("남은 에너지 ${efficiency(energy.toDouble())} kWh × 내 전비 ${efficiency(efficiencyNow)} km/kWh",
+                        color = Muted, style = MaterialTheme.typography.bodyMedium)
+                }
+                energy != null -> {
+                    Text("남은 에너지 ${efficiency(energy.toDouble())} kWh", style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold)
+                    Text("드라이브를 한 번 마치면 내 전비로 왕복 가능 거리를 알려드려요.", color = Muted,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                else -> Text(if (parked) "배터리 에너지를 읽고 있어요." else "주차 중에 차량 정보를 확인해요.", color = Muted)
+            }
+            Text(
+                listOfNotNull(batteryPercent?.let { "배터리 $it%" }, cabinC?.let { "실내 ${efficiency(it.toDouble())}°C" })
+                    .joinToString("  ·  "),
+                color = Muted, style = MaterialTheme.typography.bodyMedium,
+            )
+            // Cabin-temperature efficiency tip: seat heating/ventilation and seat-linked climate use far less energy than full-cabin HVAC.
+            cabinC?.let { temperature ->
+                val tip = when {
+                    temperature <= 12f -> "실내가 차가워요. 실내 난방 대신 열선과 착석 연동 공조를 먼저 쓰면 짧은 운행 전비를 지킬 수 있어요."
+                    temperature >= 28f -> "실내가 더워요. 앉은 좌석 통풍과 착석 연동 공조로 빈 좌석 냉방을 줄여 보세요."
+                    else -> null
+                }
+                if (tip != null) {
+                    Text(tip, color = Amber, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onClimate, enabled = parked, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("착석 연동 공조 켜기  ›")
+                    }
+                }
+            }
+            if (occupied == true) {
+                Text("동승자 탑승 · 빈 좌석 공조를 끄면 에너지를 아낄 수 있어요", color = OrbitBlue,
+                    style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onClimate, enabled = parked, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("착석 연동 공조 켜기  ›")
+                }
+            }
+        }
+    })
+    if ((activeMission == null && showPicker) || changingMode) {
         DriveModePicker(parked, recommended, currentMode) { mode ->
             data.selectDriveMode(mode.title)
             changingMode = false
+            showPicker = false
         }
         if (activeMission != null) {
             TextButton(onClick = { changingMode = false }) { Text("변경 취소") }
         }
         if (changingMode) return
-    } else {
+    } else if (activeMission != null) {
+        // One card while driving: where to, how far, and the battery — destination linking is automatic.
         Panel {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Eyebrow("진행 중인 드라이브")
-                    Text(activeMission, style = MaterialTheme.typography.headlineMedium)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Eyebrow("진행 중  ·  $activeMission")
+                    Text(linked?.label ?: navigation?.route?.name?.ifBlank { null } ?: "목적지를 정해 주세요",
+                        style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                OutlinedButton(onClick = { changingMode = true }, enabled = parked,
-                    modifier = Modifier.heightIn(min = 48.dp)) { Text("모드 변경") }
+                if (data.availableDriveAward > 0) Chip("도착 +${formatPoints(data.availableDriveAward)}")
             }
-            linked?.let { Chip(if (it.simulated) "모의 안내 도착 대기" else "내비 도착 인증 대기") }
-        }
-    }
-    if (activeMission != null && navigation != null) {
-        Panel {
-            Text("Pleos 내비 도착 인증", style = MaterialTheme.typography.titleLarge)
-            if (data.availableDriveAward > 0) {
-                Text("도착 기록 보상 · +${formatPoints(data.availableDriveAward)}", color = OrbitBlue)
+            navigation?.route?.let { plan ->
+                RouteEnergyCheck(plan, rangeKm, onCharge = { navigation.openNavigation(DriveMode.Charge.searchRequest) })
             }
-            linked?.let { Text("연결한 목적지 · ${it.label}", color = OrbitBlue) }
             Text(
-                navigation.status ?: if (linked == null) {
-                    "Pleos 내비에서 길 안내를 시작한 뒤 돌아와 목적지를 연결하세요."
-                } else {
-                    "연결한 목적지의 도착 신호를 받으면 자동으로 기록해요. 목적지를 바꾸면 다시 연결하세요."
+                when {
+                    linked != null -> "도착하면 자동으로 기록돼요."
+                    navigation?.isLinking == true -> "내비 목적지를 확인하고 있어요."
+                    else -> "내비에서 안내를 시작하면 자동으로 연결돼요."
                 },
-                color = Muted,
+                color = Muted, style = MaterialTheme.typography.bodyMedium,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        navigation.openNavigation(currentMode?.searchRequest ?: NavigationScreenRequest.Foreground)
-                    },
-                    enabled = parked,
-                    modifier = Modifier.heightIn(min = 56.dp),
-                ) { Text(currentMode?.searchLabel ?: "Pleos 내비 열기") }
-                Action(
-                    when {
-                        navigation.isLinking -> "목적지 확인 중"
-                        linked != null -> "목적지 다시 연결"
-                        else -> "현재 목적지 연결"
-                    },
-                    enabled = parked && !navigation.isLinking,
-                    minHeight = 56.dp,
-                    onClick = onLinkDestination,
-                )
+            val place = navigation?.recentPlaces?.firstOrNull()?.takeIf { linked == null && navigation.route == null }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (navigation != null) {
+                    if (place != null) {
+                        Action("${place.name} 바로 안내", enabled = parked, minHeight = 56.dp) { navigation.startRoute(place) }
+                    } else if (linked == null) {
+                        Action(currentMode?.searchLabel ?: "Pleos 내비 열기", enabled = parked, minHeight = 56.dp) {
+                            navigation.openNavigation(currentMode?.searchRequest ?: NavigationScreenRequest.Foreground)
+                        }
+                    }
+                }
+                TextButton(onClick = onArrival, enabled = parked, modifier = Modifier.heightIn(min = 56.dp)) {
+                    Text("도착 시연", color = Muted)
+                }
             }
-        }
-    }
-    if (activeMission != null && linked == null) {
-        OutlinedButton(onClick = onArrival, enabled = parked, modifier = Modifier.heightIn(min = 54.dp)) {
-            Text("도착 시연하기")
         }
     }
     data.lastMission?.let { mission ->
-        Panel {
-            Text("최근 드라이브", style = MaterialTheme.typography.titleMedium)
-            val destination = data.lastMissionDestination
-            Text(if (destination == null) mission else "$mission · $destination", color = Muted)
-            if (data.lastPlayAward > 0) Text("+${formatPoints(data.lastPlayAward)}", color = OrbitBlue)
+        TripReportPanel(data, mission, myEfficiency)
+    }
+    if (data.driveJournal.isNotEmpty()) DriveJournalPanel(data.driveJournal, parked, navigation)
+}
+
+@Composable
+private fun DriveJournalPanel(entries: List<DriveJournalEntry>, parked: Boolean, navigation: MissionNavigation?) {
+    Panel {
+        Text("나의 드라이브 기록", style = MaterialTheme.typography.titleLarge)
+        Text("언제 어디에 다녀왔는지, 그날의 기분과 함께 기기에 남겨요.", color = Muted,
+            style = MaterialTheme.typography.bodyMedium)
+        entries.take(6).forEach { entry ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "${entry.day.monthValue}월 ${entry.day.dayOfMonth}일  ·  ${entry.place ?: entry.mode}",
+                        style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(
+                            entry.mode.takeIf { entry.place != null },
+                            entry.distanceKm?.let { "${efficiency(it.toDouble())} km" },
+                            entry.efficiency?.takeIf { it in PlausibleEvEfficiency }?.let { "${efficiency(it)} km/kWh" },
+                            entry.mood?.let { "“$it”" },
+                        ).joinToString("  ·  "),
+                        color = Muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val lat = entry.latitude
+                val lon = entry.longitude
+                if (navigation != null && lat != null && lon != null && entry.place != null) {
+                    OutlinedButton(
+                        onClick = { navigation.startRoute(RecentPlace(entry.place, "", lat, lon, null, null, null, null, null)) },
+                        enabled = parked, modifier = Modifier.heightIn(min = 56.dp),
+                    ) { Text("다시 가기") }
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: Double?) {
+    val trip = data.lastTrip?.takeIf { it.mode == mission }
+    Panel {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Eyebrow("이번 드라이브 리포트  ·  차량 측정")
+                val destination = data.lastMissionDestination
+                Text(if (destination == null) mission else "$mission · $destination",
+                    style = MaterialTheme.typography.titleLarge)
+            }
+            if (data.lastPlayAward > 0) Chip("+${formatPoints(data.lastPlayAward)}")
+        }
+        when {
+            trip == null -> Text("이 드라이브는 출발 기록이 없어 거리와 전비를 계산하지 않았어요.", color = Muted)
+            trip.pending -> Text("도착 후 차량의 누적거리와 배터리 에너지를 읽고 있어요.", color = Muted)
+            else -> {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val tiles = listOf(
+                        "거리" to (trip.distanceKm?.let { "${efficiency(it.toDouble())} km" } ?: "-"),
+                        "사용 에너지" to when {
+                            trip.charged -> "충전 포함"
+                            else -> trip.energyKwh?.let { "${efficiency(it.toDouble())} kWh" } ?: "-"
+                        },
+                        "이번 전비" to (trip.efficiency?.let { "${efficiency(it)} km/kWh" } ?: "-"),
+                    )
+                    tiles.forEach { (label, value) ->
+                        Column(
+                            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Glass)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Text(label, color = Muted, style = MaterialTheme.typography.labelSmall)
+                            Text(value, color = OrbitBlue, style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                val tripEfficiency = trip.efficiency
+                // Everything secondary goes into one quiet line.
+                val notes = listOfNotNull(
+                    when {
+                        trip.charged -> "충전 포함 구간이라 전비 제외"
+                        tripEfficiency != null && monthEfficiency != null && tripEfficiency != monthEfficiency -> {
+                            val diff = (tripEfficiency / monthEfficiency - 1) * 100
+                            "이달 평균보다 ${efficiency(kotlin.math.abs(diff))}% ${if (diff >= 0) "좋음" else "낮음"}"
+                        }
+                        else -> null
+                    },
+                    data.lastRecommendation?.takeIf { it.chosen == mission }?.let {
+                        "추천 수락 ${data.recommendationAccepted}/${data.recommendationTotal}"
+                    },
+                    data.routeSuggestion?.let {
+                        "주행 중 충전 제안 " + when (data.routeSuggestionAccepted) { true -> "수락"; false -> "나중에"; null -> "응답 없음" }
+                    },
+                )
+                if (notes.isNotEmpty()) Text(notes.joinToString("  ·  "), color = Muted, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        // One question at a time: mood first, then whether the recommendation fit. Purpose can be fixed afterwards.
+        val entry = data.driveJournal.firstOrNull()?.takeIf { it.mode == mission }
+        val feedback = data.lastFeedback
+        var editingPurpose by rememberSaveable { mutableStateOf(false) }
+        when {
+            entry != null && entry.mood == null -> ReportQuestion("오늘 드라이브를 한 줄로 남겨 볼까요?", DriveMoodOptions) {
+                data.saveDriveMood(it)
+            }
+            feedback == null -> ReportQuestion("추천이 이번 이동에 맞았나요?", DriveFeedbackOptions) { data.saveDriveFeedback(it) }
+            editingPurpose -> ReportQuestion("이번 드라이브 목적", DriveMode.entries.map { it.title }) {
+                data.correctDriveMode(it)
+                editingPurpose = false
+            }
+            else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(listOfNotNull(entry?.mood?.let { "“$it”" }, feedback).joinToString("  ·  "),
+                    Modifier.weight(1f), color = OrbitBlue, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { editingPurpose = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("목적 바꾸기", color = Muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportQuestion(title: String, options: List<String>, onPick: (String) -> Unit) {
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { option ->
+            OutlinedButton(onClick = { onPick(option) }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                Text(option, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** Real-world EV efficiency band; readings outside it come from bad samples and are not used for range. */
+private val PlausibleEvEfficiency = 2.0..12.0
+
+@Composable
+private fun RouteEnergyCheck(plan: RoutePlan, rangeKm: Float?, onCharge: () -> Unit) {
+    val distance = plan.distanceKm
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            "남은 거리" to (distance?.let { "${efficiency(it.toDouble())} km" } ?: "-"),
+            "남은 시간" to (plan.minutes?.let { "약 ${it}분" } ?: "-"),
+            "도착 시 배터리" to (plan.arrivalBatteryPercent?.let { "$it%" } ?: "-"),
+        ).forEach { (label, value) ->
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Glass)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(label, color = Muted, style = MaterialTheme.typography.labelSmall)
+                Text(value, color = OrbitBlue, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+    if (distance != null && rangeKm != null) {
+        val roundTrip = distance * 2
+        if (rangeKm >= roundTrip * 1.1f) {
+            Text("왕복 ${efficiency(roundTrip.toDouble())} km · 주행가능거리 ${efficiency(rangeKm.toDouble())} km로 충전 없이 다녀올 수 있어요.",
+                color = Teal, style = MaterialTheme.typography.bodyMedium)
+        } else {
+            Text("왕복 ${efficiency(roundTrip.toDouble())} km는 주행가능거리 ${efficiency(rangeKm.toDouble())} km보다 길어요. 돌아오는 길에 충전이 필요해요.",
+                color = OrbitBlue, style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onCharge, modifier = Modifier.heightIn(min = 48.dp)) { Text("주변 충전소 보기  ›") }
+        }
+    }
+}
+
+private val DriveFeedbackOptions =listOf("추천이 딱 맞았어요", "목적지가 아쉬웠어요", "다른 목적으로 갔어요")
 
 @Composable
 private fun DriveModePicker(
@@ -1268,7 +1582,14 @@ private enum class LeagueSeries(
 }
 
 @Composable
-private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, browsing: Boolean, onBrowse: () -> Unit) {
+private fun League(
+    data: OrbitData,
+    vehicle: VehicleAccess?,
+    parked: Boolean,
+    browsing: Boolean,
+    onBrowse: () -> Unit,
+    onClimate: () -> Unit,
+) {
     val context = LocalContext.current
     val fuelPermission = "android.car.permission.CAR_ENERGY"
     var canReadFuel by remember {
@@ -1345,14 +1666,15 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
     ) {
         Column {
             Text(if (showDemo) "예시 기록" else "내 차종 리그", style = MaterialTheme.typography.titleMedium)
-            if (!showDemo && demoProfile) Text("에뮬레이터 예시 차종 · 아이오닉 5", color = Muted)
+            if (!showDemo && demoProfile) Text("데모 차량 · 아이오닉 5", color = Muted)
         }
         OutlinedButton(onClick = { showDemo = !showDemo }, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(if (showDemo) "차량 기록 보기" else "예시 기록으로 시연")
         }
     }
+    AdaptivePair(matchHeight = true, first = { pane ->
     if (showDemo) {
-        Panel {
+        Panel(pane) {
             if (isDemoSeries) {
                 Text("${data.leagueDistanceKm} / $LeagueMinimumDistanceKm km", style = MaterialTheme.typography.headlineMedium)
                 LeagueDistanceGauge(data.leagueDistanceKm.toFloat())
@@ -1368,14 +1690,24 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
             }
         }
     } else if (vehicle != null) {
-        LeagueVehicleRecord(data, telemetry, loading, mySeries?.unit, myRank)
-        if (mySeries?.unit != "km/kWh" && !canReadFuel) {
-            TextButton(onClick = { fuelPermissionRequest.launch(fuelPermission) }, enabled = parked,
-                modifier = Modifier.heightIn(min = 48.dp)) { Text("연료량 읽기 허용") }
+        LeagueVehicleRecord(data, telemetry, loading, mySeries?.unit, myRank, pane) {
+            if (mySeries?.unit != "km/kWh" && !canReadFuel) {
+                TextButton(onClick = { fuelPermissionRequest.launch(fuelPermission) }, enabled = parked,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("연료량 읽기 허용") }
+            }
         }
     } else {
-        Text("월 누적 ${LeagueMinimumDistanceKm} km 이상 주행하면 순위 등록 조건을 충족해요.", color = Muted)
+        Panel(pane) {
+            Text("월 누적 ${LeagueMinimumDistanceKm} km 이상 주행하면 순위 등록 조건을 충족해요.", color = Muted)
+        }
     }
+    }, second = { pane ->
+        LeagueClimateInsight(
+            vehicle, parked, onClimate, pane,
+            comparison = data.automaticCabinClimate.takeIf { mySeries == LeagueSeries.Ioniq5 },
+            myRating = data.comparison?.preference,
+        )
+    })
         OutlinedButton(onClick = onBrowse, modifier = Modifier.heightIn(min = 56.dp)) { Text("다른 리그 구경하기  ›") }
         if (series == null) {
             Text(if (model == null) "차종 신호를 확인할 수 없어요. 다른 리그에서 예시 순위를 볼 수 있어요."
@@ -1447,11 +1779,19 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
 }
 
 @Composable
-private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, loading: Boolean, unit: String?, myRank: Int?) {
+private fun LeagueVehicleRecord(
+    data: OrbitData,
+    telemetry: DrivingTelemetry?,
+    loading: Boolean,
+    unit: String?,
+    myRank: Int?,
+    modifier: Modifier = Modifier,
+    footer: @Composable ColumnScope.() -> Unit = {},
+) {
     val distance = data.monthlyVehicleDistanceKm
     val ev = data.monthlyEvEstimate
     val fuel = data.monthlyFuelEstimate
-    Panel {
+    Panel(modifier) {
         Text("이달 내 주행 기록", style = MaterialTheme.typography.titleLarge)
         if (distance != null) {
             Row(
@@ -1503,6 +1843,94 @@ private fun LeagueVehicleRecord(data: OrbitData, telemetry: DrivingTelemetry?, l
             color = Muted,
             style = MaterialTheme.typography.bodyMedium,
         )
+        footer()
+    }
+}
+
+@Composable
+private fun LeagueClimateInsight(
+    vehicle: VehicleAccess?,
+    parked: Boolean,
+    onClimate: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Whether my car uses seat-linked climate; null hides the same-model comparison. */
+    comparison: Boolean?,
+    /** My own X-LAB preference, if I already compared the climate variants. */
+    myRating: String?,
+) {
+    var cabin by remember { mutableStateOf<CabinClimateSnapshot?>(null) }
+    LaunchedEffect(vehicle, parked) {
+        cabin = null
+        // Read-only: with automatic = false the vehicle is observed but never controlled.
+        if (vehicle != null && parked) vehicle.observeCabinClimate(automatic = false) { cabin = it }
+    }
+    Panel(modifier) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Eyebrow("효율 인사이트  ·  공조 에너지")
+                val snapshot = cabin
+                val idle = snapshot?.idleZones.orEmpty()
+                val (status, color) = when {
+                    vehicle == null || !parked || snapshot == null || snapshot.zones.isEmpty() ->
+                        "빈 좌석 공조는 효율을 깎아요" to OrbitInk
+                    idle.isNotEmpty() && CabinSeat.entries.all { snapshot.occupied[it] == false } ->
+                        "아무도 없는데 공조가 켜져 있어요" to Amber
+                    idle.isNotEmpty() -> "빈 좌석 공조 켜짐 · ${snapshot.seatLabels(idle)}" to Amber
+                    snapshot.zones.none { it.powered == true } -> "공조 꺼짐" to Muted
+                    else -> "지금은 빈 좌석 공조가 꺼져 있어요" to Teal
+                }
+                Text(status, color = color, style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = onClimate, modifier = Modifier.heightIn(min = 48.dp)) { Text("X-LAB 체험  ›") }
+        }
+        if (comparison != null) {
+            Eyebrow("같은 차종 비교 · 착석 연동 공조 · 예시 데이터")
+            val withFeature = 5.8
+            val without = 5.4
+            listOf(
+                Triple("사용", withFeature, OrbitBlue),
+                Triple("미사용", without, Muted),
+            ).forEach { (label, value, barColor) ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, Modifier.width(56.dp), color = Muted, style = MaterialTheme.typography.bodyMedium)
+                    Box(Modifier.weight(1f).height(8.dp).clip(CircleShape).background(Glass)) {
+                        Box(Modifier.fillMaxWidth((value / 6.4).toFloat()).fillMaxHeight().clip(CircleShape).background(barColor))
+                    }
+                    Text("${efficiency(value)} km/kWh", Modifier.width(104.dp), color = barColor,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            // Efficiency alone is not enough: the change ships only if drivers are also comfortable with it.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "전비" to "+${efficiency((withFeature / without - 1) * 100)}%",
+                    "만족도" to "4.3 / 5",
+                    "계속 사용" to "78%",
+                ).forEach { (label, value) ->
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Glass)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(label, color = Muted, style = MaterialTheme.typography.labelSmall)
+                        Text(value, color = OrbitBlue, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Text(
+                "전비와 사용자 평가가 함께 좋아야 OTA로 전체 적용해요  ·  내 차 ${if (comparison) "사용 중" else "미사용"}" +
+                    (myRating?.let { "  ·  내 평가 $it" } ?: ""),
+                color = Muted, style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
@@ -1684,7 +2112,7 @@ private fun Arrival(onFinish: (String?) -> Unit) {
     Intro("어떤 경험이었나요?", "도착 후 느낀 점을 하나 남기면 다음 드라이브에 참고할 수 있어요.")
     Panel {
         Eyebrow("도착 후 피드백")
-        ChoiceButtons(listOf("경로가 편했어요", "경로 안내가 복잡했어요", "동승자 배려가 필요했어요")) { onFinish(it) }
+        ChoiceButtons(DriveFeedbackOptions) { onFinish(it) }
         OutlinedButton(onClick = { onFinish(null) }) { Text("응답 없이 기록 완료") }
     }
 }
@@ -1696,7 +2124,7 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
         first = { modifier ->
             FeatureCard(
                 "실험 01  ·  차량 기능", Page.ClimateLab.label,
-                "앞뒤 네 좌석의 착석 신호에 맞춰 공조가 어떻게 바뀌는지 체험해요.",
+                "빈 좌석 공조는 끄고 앉은 좌석만 맞춰, 공조 에너지 낭비를 줄여요.",
                 "공조 실험 보기", R.drawable.orbit_climate_preview, modifier, onClimate,
                 artworkFilter = if (LocalOrbitDark.current) DimmedPreview else null,
                 artworkAlignment = Alignment.CenterStart,
@@ -1714,6 +2142,28 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
         R.drawable.orbit_lab, "아이디어·피드백", "필요한 차량 기능을 제안하거나 체험 후 의견을 남겨요.",
         "의견 남기기", Modifier.fillMaxWidth().heightIn(min = 148.dp), onFeedback,
     )
+    Panel {
+        Text("다음 실험", style = MaterialTheme.typography.titleLarge)
+        Text("PLAY에서 발견한 불편과 에너지 낭비를 X-LAB에서 먼저 검증해요.", color = Muted)
+        listOf(
+            "실험 03  ·  충전 안내" to "잔량 기준 제안과 경로 기반 제안 중 어떤 충전 안내를 따르는지 비교해요.",
+            "실험 04  ·  전비 설명" to "공조·주행 조건별로 이달 전비가 왜 달라졌는지 보여줘요.",
+            "실험 05  ·  뒷좌석 하차 알림" to "뒷좌석에 사람이 남은 채 주차하면 화면과 음성 알림을 비교해요.",
+            "실험 06  ·  음성 평가" to "주차 중 음성으로 체험 의견을 남겨요.",
+        ).forEach { (title, description) ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(description, color = Muted, style = MaterialTheme.typography.bodyMedium)
+                }
+                Text("준비 중", color = Muted, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
 }
 
 @Composable
@@ -1751,8 +2201,10 @@ private fun ClimateLab(
             OutlinedButton(onClick = { comparison = selected },
                 modifier = Modifier.weight(1f).heightIn(min = 64.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (comparison == selected) Glass else OrbitPaper,
-                    contentColor = OrbitInk)) { Text(label, fontWeight = FontWeight.SemiBold) }
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (comparison == selected) MaterialTheme.colorScheme.inverseSurface else OrbitPaper,
+                    contentColor = if (comparison == selected) MaterialTheme.colorScheme.inverseOnSurface else Muted,
+                )) { Text(label, fontWeight = if (comparison == selected) FontWeight.Bold else FontWeight.Normal) }
         }
     }
     if (!comparison) {
@@ -1775,6 +2227,25 @@ private fun ClimateLab(
                 else snapshot?.status ?: "주차 상태와 차량 연결을 확인하고 있어요.",
                 color = Muted,
             )
+            snapshot?.let {
+                val idle = it.idleZones
+                val saving = it.savingZones
+                when {
+                    idle.isNotEmpty() -> Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("에너지 낭비 · 빈 좌석 공조 켜짐 (${it.seatLabels(idle)})", Modifier.weight(1f),
+                            color = Amber, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        if (!automatic && parked && vehicle != null) {
+                            Action("빈 좌석 공조 끄기", minHeight = 56.dp) { data.saveAutomaticCabinClimate(true) }
+                        }
+                    }
+                    saving.isNotEmpty() -> Text("에너지 절약 · 빈 좌석 공조 꺼짐 (${it.seatLabels(saving)})",
+                        color = Teal, style = MaterialTheme.typography.titleMedium)
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 54.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1892,11 +2363,19 @@ private fun CabinSeatLabel(seat: CabinSeat, snapshot: CabinClimateSnapshot?, mod
     val temperature = snapshot?.temperatures?.firstOrNull { seat.value in it.seats }?.value
     val measured = snapshot?.measuredTemperatures?.firstOrNull { seat.value in it.seats }?.value
     val eco = snapshot?.ecoSeats?.contains(seat.value) == true
-    val accent = if (occupied == true) OrbitBlue else if (eco) Teal else Muted
+    // Empty seat inside a powered climate zone = energy spent on nobody.
+    val wasting = occupied == false && zone?.powered == true &&
+        snapshot?.idleZones?.any { seat.value in it.seats } == true
+    val accent = when {
+        occupied == true -> OrbitBlue
+        wasting -> Amber
+        eco || (occupied == false && zone?.powered == false) -> Teal
+        else -> Muted
+    }
     val shape = RoundedCornerShape(11.dp)
     Column(
         modifier.clip(shape).background(OrbitBackground.copy(alpha = .95f))
-            .border(1.dp, if (occupied == true || eco) accent.copy(alpha = .7f) else Border, shape)
+            .border(if (wasting) 2.dp else 1.dp, if (accent != Muted) accent.copy(alpha = .8f) else Border, shape)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -2464,8 +2943,23 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
         }
     }
     Panel {
-        Text("제휴 제안", style = MaterialTheme.typography.titleMedium)
-        Text("블루멤버스 전환과 차량 관리 쿠폰을 제안해요. 실제 사용은 제휴 확정 후 가능해요.", color = Muted)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("블루멤버스 포인트 전환", style = MaterialTheme.typography.titleMedium)
+                Text("모은 포인트를 블루멤버스 포인트로 바꿔 정비·차량용품에 써요.", color = Muted)
+            }
+            Chip("1:1 전환 예시")
+        }
+        Text("전환 가능  ${formatPoints(data.balance)}", color = OrbitBlue, style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.heightIn(min = 56.dp)) {
+            Text("제휴 확정 후 전환할 수 있어요")
+        }
+        Text("시연 포인트예요. 전환 비율과 월 한도는 제휴 운영 정책에 따라 정해져요.", color = Muted,
+            style = MaterialTheme.typography.bodyMedium)
     }
     Panel {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -2481,9 +2975,9 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
     Panel {
         Text("기록 관리", style = MaterialTheme.typography.titleMedium)
         if (resetDone) Text("기록을 초기화했어요. 미션을 다시 시작할 수 있어요.", color = Muted)
-        OutlinedButton(onClick = { confirmingReset = true }, enabled = canReset,
-            modifier = Modifier.heightIn(min = 56.dp)) {
-            Text("기록 초기화")
+        TextButton(onClick = { confirmingReset = true }, enabled = canReset,
+            modifier = Modifier.heightIn(min = 64.dp)) {
+            Text("기록 초기화", color = Muted)
         }
     }
 }
@@ -2513,8 +3007,8 @@ private fun PointActivity(title: String, award: Int, details: List<String> = emp
 private fun ChoiceButtons(labels: List<String>, enabled: Boolean = true, onClick: (String) -> Unit) {
     labels.forEach { label ->
         OutlinedButton(onClick = { onClick(label) }, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(label, fontSize = 17.sp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
+            Text(label, fontSize = 18.sp)
         }
     }
 }

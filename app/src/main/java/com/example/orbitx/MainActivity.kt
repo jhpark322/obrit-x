@@ -59,11 +59,14 @@ class MainActivity : ComponentActivity() {
             leagueSampling = lifecycleScope.launch {
                 while (isActive) {
                     data.recordLeagueSample(source.readLeagueSample())
+                    missionNavigation?.vehicleBatteryPercent = source.readBatteryPercent()
                     delay(3_000)
                 }
             }
         }
         missionNavigation?.restoreMissionLink()
+        // Stay connected to Pleos navigation so route start and arrival are picked up without extra taps.
+        missionNavigation?.refreshRoute()
     }
 
     override fun onStop() {

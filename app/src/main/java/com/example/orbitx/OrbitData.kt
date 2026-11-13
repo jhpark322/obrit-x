@@ -25,6 +25,24 @@ internal fun leagueEfficiency(distanceKm: Float?, consumed: Float?, minimum: Flo
     return distanceKm.toDouble() / consumed
 }
 
+/** What the drive screen recommended, what the driver actually chose, and the vehicle context behind it. */
+internal data class RecommendationRecord(val recommended: String, val chosen: String, val reason: String) {
+    val accepted: Boolean get() = recommended == chosen
+}
+
+/** One drive, measured from the odometer and battery energy at departure (P) and arrival (P). */
+internal data class TripReport(
+    val mode: String,
+    val distanceKm: Float?,
+    val energyKwh: Float?,
+    val charged: Boolean,
+    val pending: Boolean,
+) {
+    val efficiency: Double?
+        get() = if (distanceKm != null && energyKwh != null && distanceKm >= .5f && energyKwh >= .1f)
+            (distanceKm / energyKwh).toDouble() else null
+}
+
 internal data class LeagueEntry(val name: String, val efficiency: Double, val isMine: Boolean = false)
 
 internal fun leaguePreviewRanking(
@@ -232,9 +250,29 @@ internal class ClimateTrial(val variant: Variant, val task: ClimateTask) {
 }
 
 internal data class OtaReview(val rating: String, val feedback: String, val award: Int)
-internal data class LinkedMissionDestination(val name: String, val address: String, val simulated: Boolean) {
+internal data class LinkedMissionDestination(
+    val name: String,
+    val address: String,
+    val simulated: Boolean,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+) {
     val label get() = name.ifBlank { address }
 }
+
+/** One remembered drive: where and when, how efficient, and a one-tap mood line. */
+internal data class DriveJournalEntry(
+    val day: LocalDate,
+    val mode: String,
+    val place: String?,
+    val distanceKm: Float?,
+    val efficiency: Double?,
+    val mood: String?,
+    val latitude: Double?,
+    val longitude: Double?,
+)
+
+internal val DriveMoodOptions = listOf("또 오고 싶어요", "함께라서 즐거웠어요", "조용히 쉬었어요", "생각보다 아쉬웠어요")
 
 internal data class MissionCompletion(val title: String, val award: Int, val destination: String?, val simulated: Boolean)
 
@@ -347,11 +385,15 @@ internal class OrbitData(context: Context) {
             LinkedMissionDestination(
                 name, prefs.getString("missionDestinationAddress", "").orEmpty(),
                 prefs.getBoolean("missionDestinationSimulated", false),
+                prefs.getString("missionDestinationLat", null)?.toDoubleOrNull(),
+                prefs.getString("missionDestinationLon", null)?.toDoubleOrNull(),
             )
         }?.takeIf { activeMission != null },
     )
         private set
     var lastFeedback by mutableStateOf(prefs.getString("lastFeedback", null))
+        private set
+    var lastTrip by mutableStateOf(loadTripReport())
         private set
     var lastPlayAward by mutableStateOf(prefs.getInt("lastPlayAward", 0))
         private set
@@ -423,6 +465,13 @@ internal class OrbitData(context: Context) {
             .apply()
 
         balance = 0
+        lastTrip = null
+        driveJournal = emptyList()
+        lastRecommendation = null
+        recommendationAccepted = 0
+        recommendationTotal = 0
+        routeSuggestion = null
+        routeSuggestionAccepted = null
         activeMission = null
         linkedMissionDestination = null
         pendingMissionArrival = null
@@ -556,6 +605,10 @@ internal class OrbitData(context: Context) {
         lastSampleMonth = leagueSeason
         leagueEnergyAvailable = sample?.let { it.odometerKm != null && it.batteryKwh != null }
         sample?.odometerKm?.let { monthlyVehicleDistanceKm = leagueDistanceFromOdometer(it) }
+        if (sample?.odometerKm != null) {
+            if (activeMission != null && prefs.getBoolean("tripStartPending", false)) storeTripStart(sample)
+            if (lastTrip?.pending == true) finishTripReport(sample)
+        }
         val fuelInterval = if (previous != null && sample != null) fuelDrivingInterval(previous, sample) else null
         fuelInterval?.let { interval ->
             val total = monthlyFuelEstimate
@@ -612,9 +665,187 @@ internal class OrbitData(context: Context) {
     val availableLabAward: Int
         get() = labAward(LocalDate.now())
 
+    /** Drive mode the drive screen last recommended; used when a drive starts from Pleos navigation. */
+    var recommendedDriveMode: String = prefs.getString("recommendedDriveMode", null) ?: "기분 전환"
+        set(value) {
+            if (field == value) return
+            field = value
+            prefs.edit().putString("recommendedDriveMode", value).apply()
+        }
+
+    /** Why the drive screen recommended [recommendedDriveMode] (the vehicle context behind it). */
+    var recommendedReason: String = prefs.getString("recommendedReason", null) ?: ""
+        set(value) {
+            if (field == value) return
+            field = value
+            prefs.edit().putString("recommendedReason", value).apply()
+        }
+
+    /** Recommended vs. chosen mode for the latest drive, plus running acceptance counts. */
+    var lastRecommendation by mutableStateOf(
+        prefs.getString("recoShown", null)?.let { shown ->
+            RecommendationRecord(shown, prefs.getString("recoChosen", shown).orEmpty(), prefs.getString("recoReason", "").orEmpty())
+        },
+    )
+        private set
+    var recommendationAccepted by mutableStateOf(prefs.getInt("recoAccepted", 0))
+        private set
+    var recommendationTotal by mutableStateOf(prefs.getInt("recoTotal", 0))
+        private set
+
     fun selectDriveMode(intent: String) {
+        val starting = activeMission == null
         prefs.edit().putString("activeMission", intent).apply()
         activeMission = intent
+        if (starting) {
+            val record = RecommendationRecord(recommendedDriveMode, intent, recommendedReason)
+            val accepted = recommendationAccepted + if (record.accepted) 1 else 0
+            val total = recommendationTotal + 1
+            prefs.edit().putString("recoShown", record.recommended).putString("recoChosen", record.chosen)
+                .putString("recoReason", record.reason).putInt("recoAccepted", accepted).putInt("recoTotal", total).apply()
+            lastRecommendation = record
+            recommendationAccepted = accepted
+            recommendationTotal = total
+        }
+        if (starting) {
+            val sample = freshVehicleSample()
+            if (sample != null) storeTripStart(sample)
+            else prefs.edit().putBoolean("tripStartPending", true).remove("tripStartKm").remove("tripStartKwh").apply()
+        }
+    }
+
+    /** Latest odometer/battery reading if it is recent enough to stand for "now". */
+    private fun freshVehicleSample() = lastLeagueSample?.takeIf {
+        it.odometerKm != null && SystemClock.elapsedRealtime() - lastSampleAt <= 10_000L
+    }
+
+    private fun storeTripStart(sample: LeagueVehicleSample) {
+        prefs.edit().putBoolean("tripStartPending", false)
+            .putFloat("tripStartKm", sample.odometerKm ?: return)
+            .putFloat("tripStartKwh", sample.batteryKwh ?: -1f)
+            .apply()
+    }
+
+    /** Closes the trip report with an arrival reading: distance from the odometer, energy from the battery. */
+    private fun finishTripReport(end: LeagueVehicleSample) {
+        val report = lastTrip ?: return
+        val startKm = prefs.getFloat("tripStartKm", -1f).takeIf { it >= 0f }
+        val startKwh = prefs.getFloat("tripStartKwh", -1f).takeIf { it >= 0f }
+        val distance = if (startKm != null && end.odometerKm != null) (end.odometerKm - startKm).coerceAtLeast(0f) else null
+        val charged = startKwh != null && end.batteryKwh != null && end.batteryKwh > startKwh + .05f
+        val energy = if (startKwh != null && end.batteryKwh != null && !charged) (startKwh - end.batteryKwh).coerceAtLeast(0f) else null
+        val done = report.copy(distanceKm = distance, energyKwh = energy, charged = charged, pending = false)
+        driveJournal.firstOrNull()?.let { latest ->
+            updateLatestJournal(latest.copy(distanceKm = distance, efficiency = done.efficiency))
+        }
+        prefs.edit().putFloat("tripReportKm", distance ?: -1f).putFloat("tripReportKwh", energy ?: -1f)
+            .putBoolean("tripReportCharged", charged).putBoolean("tripReportPending", false)
+            .remove("tripStartKm").remove("tripStartKwh").remove("tripStartPending").apply()
+        lastTrip = done
+    }
+
+    private fun loadTripReport(): TripReport? {
+        val mode = prefs.getString("tripReportMode", null) ?: return null
+        return TripReport(
+            mode,
+            prefs.getFloat("tripReportKm", -1f).takeIf { it >= 0f },
+            prefs.getFloat("tripReportKwh", -1f).takeIf { it >= 0f },
+            prefs.getBoolean("tripReportCharged", false),
+            prefs.getBoolean("tripReportPending", false),
+        )
+    }
+
+    /** Driving-time suggestion shown over navigation, and whether the driver accepted it. */
+    var routeSuggestion by mutableStateOf(prefs.getString("routeSuggestion", null))
+        private set
+    var routeSuggestionAccepted by mutableStateOf(
+        if (prefs.contains("routeSuggestionAccepted")) prefs.getBoolean("routeSuggestionAccepted", false) else null,
+    )
+        private set
+
+    fun recordRouteSuggestion(prompt: String?, accepted: Boolean?) {
+        prefs.edit().apply {
+            if (prompt != null) { putString("routeSuggestion", prompt); remove("routeSuggestionAccepted") }
+            if (accepted != null) putBoolean("routeSuggestionAccepted", accepted)
+        }.apply()
+        if (prompt != null) { routeSuggestion = prompt; routeSuggestionAccepted = null }
+        if (accepted != null) routeSuggestionAccepted = accepted
+    }
+
+    /** Remembered drives, newest first (kept on the device, at most 20). */
+    var driveJournal by mutableStateOf(loadDriveJournal())
+        private set
+
+    private fun loadDriveJournal(): List<DriveJournalEntry> {
+        val entries = runCatching { JSONArray(prefs.getString("driveJournal", "[]")) }.getOrNull() ?: return emptyList()
+        return (0 until entries.length()).mapNotNull { index ->
+            val e = entries.optJSONObject(index) ?: return@mapNotNull null
+            DriveJournalEntry(
+                runCatching { LocalDate.parse(e.optString("day")) }.getOrNull() ?: return@mapNotNull null,
+                e.optString("mode"),
+                e.optString("place").ifBlank { null },
+                e.optDouble("km").takeIf { !it.isNaN() }?.toFloat(),
+                e.optDouble("eff").takeIf { !it.isNaN() },
+                e.optString("mood").ifBlank { null },
+                e.optDouble("lat").takeIf { !it.isNaN() },
+                e.optDouble("lon").takeIf { !it.isNaN() },
+            )
+        }
+    }
+
+    private fun saveDriveJournal(list: List<DriveJournalEntry>) {
+        val array = JSONArray()
+        list.take(20).forEach { entry ->
+            array.put(JSONObject().apply {
+                put("day", entry.day.toString()); put("mode", entry.mode)
+                entry.place?.let { put("place", it) }; entry.distanceKm?.let { put("km", it.toDouble()) }
+                entry.efficiency?.let { put("eff", it) }; entry.mood?.let { put("mood", it) }
+                entry.latitude?.let { put("lat", it) }; entry.longitude?.let { put("lon", it) }
+            })
+        }
+        prefs.edit().putString("driveJournal", array.toString()).apply()
+        driveJournal = list.take(20)
+    }
+
+    private fun addJournalEntry(entry: DriveJournalEntry) = saveDriveJournal(listOf(entry) + driveJournal)
+
+    private fun updateLatestJournal(entry: DriveJournalEntry) =
+        saveDriveJournal(listOf(entry) + driveJournal.drop(1))
+
+    /**
+     * After arrival (parked), the driver can say what the drive was really for, instead of having
+     * to pick a mode before or during the drive. Keeps the report, journal and acceptance data in sync.
+     */
+    fun correctDriveMode(mode: String) {
+        val previous = lastMission ?: return
+        if (previous == mode) return
+        val record = lastRecommendation?.takeIf { it.chosen == previous }
+        val wasAccepted = record?.accepted == true
+        val nowAccepted = record?.recommended == mode
+        val accepted = recommendationAccepted + when {
+            record == null -> 0
+            wasAccepted && !nowAccepted -> -1
+            !wasAccepted && nowAccepted -> 1
+            else -> 0
+        }
+        prefs.edit().putString("lastMission", mode).putInt("recoAccepted", accepted).apply {
+            if (record != null) putString("recoChosen", mode)
+            if (lastTrip?.mode == previous) putString("tripReportMode", mode)
+        }.apply()
+        lastMission = mode
+        recommendationAccepted = accepted
+        if (record != null) lastRecommendation = record.copy(chosen = mode)
+        lastTrip?.takeIf { it.mode == previous }?.let { lastTrip = it.copy(mode = mode) }
+        driveJournal.firstOrNull()?.takeIf { it.mode == previous }?.let { updateLatestJournal(it.copy(mode = mode)) }
+    }
+
+    fun saveDriveMood(mood: String) {
+        driveJournal.firstOrNull()?.let { updateLatestJournal(it.copy(mood = mood)) }
+    }
+
+    fun saveDriveFeedback(feedback: String) {
+        prefs.edit().putString("lastFeedback", feedback).apply()
+        lastFeedback = feedback
     }
 
     fun recentRepeatedDriveDays(): Int = repeatedDriveDays(loadDriveVisits(), LocalDate.now())
@@ -636,6 +867,8 @@ internal class OrbitData(context: Context) {
             .putString("missionDestinationName", target?.name)
             .putString("missionDestinationAddress", target?.address)
             .putBoolean("missionDestinationSimulated", target?.simulated == true)
+            .putString("missionDestinationLat", target?.latitude?.toString())
+            .putString("missionDestinationLon", target?.longitude?.toString())
             .apply()
         linkedMissionDestination = target
     }
@@ -643,6 +876,7 @@ internal class OrbitData(context: Context) {
     fun finishMission(feedback: String?, destination: LinkedMissionDestination? = null): MissionCompletion? {
         val intent = activeMission ?: return null
         if (destination != null && destination != linkedMissionDestination) return null
+        val linkedBefore = linkedMissionDestination
         val destinationLabel = destination?.label
         val simulated = destination?.simulated == true
         val today = LocalDate.now()
@@ -694,6 +928,15 @@ internal class OrbitData(context: Context) {
         lastFeedback = feedback
         lastPlayAward = award
         balance += award
+        addJournalEntry(DriveJournalEntry(
+            today, intent, destinationLabel ?: linkedBefore?.label?.ifBlank { null }, null, null, null,
+            destination?.latitude ?: linkedBefore?.latitude,
+            destination?.longitude ?: linkedBefore?.longitude,
+        ))
+        prefs.edit().putString("tripReportMode", intent).putBoolean("tripReportPending", true)
+            .remove("tripReportKm").remove("tripReportKwh").remove("tripReportCharged").apply()
+        lastTrip = TripReport(intent, null, null, charged = false, pending = true)
+        freshVehicleSample()?.let(::finishTripReport)
         val completion = MissionCompletion(intent, award, destinationLabel, simulated)
         if (destination != null) pendingMissionArrival = completion
         return completion

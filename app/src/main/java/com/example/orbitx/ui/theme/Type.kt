@@ -33,9 +33,10 @@ val Typography = Typography(
     titleMedium = asta(21, 28, FontWeight.SemiBold),
     titleSmall = asta(18, 26, FontWeight.SemiBold),
     bodyLarge = asta(18, 26),
-    bodyMedium = asta(16, 24),
-    bodySmall = asta(15, 22),
+    // In-car reading distance: secondary text and eyebrows sized up from phone defaults.
+    bodyMedium = asta(17, 25),
+    bodySmall = asta(16, 23),
     labelLarge = asta(18, 24, FontWeight.SemiBold),
-    labelMedium = asta(16, 22, FontWeight.SemiBold),
-    labelSmall = asta(14, 20, FontWeight.SemiBold),
+    labelMedium = asta(17, 23, FontWeight.SemiBold),
+    labelSmall = asta(16, 22, FontWeight.SemiBold),
 )

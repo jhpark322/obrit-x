@@ -2,9 +2,13 @@ package com.example.orbitx
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
 import ai.pleos.playground.navi.constants.NaviMode
+import ai.pleos.playground.navi.constants.RouteOption
 import ai.pleos.playground.navi.data.DestinationArrivedInfo
 import ai.pleos.playground.navi.data.DestinationInfo
 import ai.pleos.playground.navi.data.NavigationScreenRequest
+import ai.pleos.playground.navi.data.RecentDestinationInfo
+import ai.pleos.playground.navi.data.RouteInfo
+import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.data.RouteStateInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
@@ -24,6 +28,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** The route Pleos navigation is guiding right now, as reported by NaviHelper. */
+internal data class RoutePlan(val name: String, val distanceKm: Float?, val minutes: Int?, val arrivalBatteryPercent: Int?)
+
+internal data class RecentPlace(
+    val name: String, val address: String, val latitude: Double, val longitude: Double,
+    val displayLatitude: Double?, val displayLongitude: Double?, val poiId: String?, val poiSubId: String?, val provider: String?,
+)
 
 internal class MissionNavigation(
     private val context: Context,
@@ -45,24 +57,85 @@ internal class MissionNavigation(
         private set
     var status by mutableStateOf<String?>(null)
         private set
+    private var routeState by mutableStateOf<RoutePlan?>(null)
+    var route: RoutePlan?
+        get() = routeState
+        private set(value) {
+            routeState = value
+            value?.let(::maybeSuggestCharging)
+        }
+    private var suggestedRoute: String? = null
+    /** Last battery % read from the Vehicle SDK while ORBIT X was in front (kept while navigation is in front). */
+    var vehicleBatteryPercent: Int? = null
+        set(value) {
+            field = value
+            routeState?.let(::maybeSuggestCharging)
+        }
+    var recentPlaces by mutableStateOf<List<RecentPlace>?>(null)
+        private set
+    private val pendingCalls = mutableListOf<(NaviHelper) -> Unit>()
 
     private val listener = object : NaviHelperEventListener {
+        override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
+            scope.launch {
+                route = RoutePlan(
+                    routeStartInfo.name.orEmpty(),
+                    routeStartInfo.distance.takeIf { it > 0 }?.div(1_000f),
+                    routeStartInfo.duration.takeIf { it > 0 }?.let { (it + 59) / 60 },
+                    routeStartInfo.remainDestinationChargingValue.takeIf { it in 0..100 },
+                )
+                // No extra taps: a route started in Pleos navigation (from ORBIT X or by hand) starts the
+                // recommended drive if none is running, and its destination is linked for automatic arrival.
+                if (data.activeMission == null) data.selectDriveMode(data.recommendedDriveMode)
+                if (data.linkedMissionDestination == null) linkCurrentDestination()
+            }
+        }
+
         override fun onDestinationInfo(destinationInfo: DestinationInfo) {
             scope.launch {
+                if (destinationInfo.remainDistance > 0) {
+                    route = RoutePlan(
+                        destinationInfo.name.orEmpty().ifBlank { route?.name.orEmpty() },
+                        destinationInfo.remainDistance / 1_000f,
+                        destinationInfo.remainTime.takeIf { it > 0 }?.let { (it + 59) / 60 },
+                        route?.arrivalBatteryPercent,
+                    )
+                }
                 if (isLinking && data.activeMission != null) {
                     requestedDestination = destinationInfo
                     finishLinkRequest()
+                } else if (destinationInfo.remainDistance > 0 && data.linkedMissionDestination == null) {
+                    // Guidance was already running when ORBIT X connected: pick it up the same way.
+                    if (data.activeMission == null) data.selectDriveMode(data.recommendedDriveMode)
+                    linkCurrentDestination()
                 }
             }
         }
 
         override fun onRouteStateInfo(routeStateInfo: RouteStateInfo) {
             scope.launch {
+                if (!routeStateInfo.isRouting) route = null
+                else routeStateInfo.remainDestinationChargingInt.takeIf { it in 0..100 }?.let { battery ->
+                    route = (route ?: RoutePlan("", null, null, null)).copy(arrivalBatteryPercent = battery)
+                }
                 if (isLinking) {
                     requestedMode = routeStateInfo.naviMode
                     finishLinkRequest()
                 }
             }
+        }
+
+        override fun onRecentDestinationInfo(recentDestinationInfo: List<RecentDestinationInfo>) {
+            scope.launch {
+                recentPlaces = recentDestinationInfo.filter { !it.name.isNullOrBlank() }.take(4).map {
+                    RecentPlace(it.name.orEmpty(), it.address.orEmpty(), it.latitude, it.longitude,
+                        it.displayLatitude, it.displayLongitude, it.poiId, it.poiSubId, it.poiProvider)
+                }
+            }
+        }
+
+        override fun onRouteEnded() {
+            scope.launch { route = null }
         }
 
         override fun onDestinationArrived(destinationArrivedInfo: DestinationArrivedInfo) {
@@ -83,6 +156,7 @@ internal class MissionNavigation(
 
         override fun onRouteCancelled() {
             scope.launch {
+                route = null
                 if (data.linkedMissionDestination != null || isLinking) {
                     clearMissionLink()
                     status = "내비 안내가 취소됐어요. 새 목적지를 연결할 수 있어요."
@@ -112,6 +186,36 @@ internal class MissionNavigation(
             query(existing)
         } else if (existing == null) {
             connect()
+        }
+    }
+
+    /** Runs [call] now if NaviHelper is connected, otherwise right after it connects. */
+    private fun withClient(call: (NaviHelper) -> Unit) {
+        val client = helper
+        if (connected && client != null) runCatching { call(client) }
+        else {
+            pendingCalls += call
+            if (client == null) connect()
+        }
+    }
+
+    fun loadRecentPlaces() = withClient { it.getRecentDestinationInfo() }
+
+    fun refreshRoute() = withClient {
+        it.getRouteStateInfo()
+        it.getDestinationInfo()
+    }
+
+    /** Starts Pleos navigation guidance to [place] directly from the app (parked only). */
+    fun startRoute(place: RecentPlace) {
+        if (!canOpenScreen()) return
+        screenStatus = "${place.name}(으)로 Pleos 내비 안내를 요청했어요."
+        withClient {
+            it.requestRoute(RouteInfo(
+                place.latitude, place.longitude, place.displayLatitude, place.displayLongitude,
+                place.name, place.poiId.orEmpty(), place.address, place.poiSubId.orEmpty(), RouteOption.RECOMMENDED,
+                place.provider.orEmpty(), false,
+            ))
         }
     }
 
@@ -169,6 +273,7 @@ internal class MissionNavigation(
                                 connected = true
                                 if (isLinking) query(client)
                                 openPendingScreen(client)
+                                pendingCalls.toList().also { pendingCalls.clear() }.forEach { call -> runCatching { call(client) } }
                             }
                             .onFailure { connectionFailed() }
                     }
@@ -194,7 +299,8 @@ internal class MissionNavigation(
         }
         val info = requestedDestination ?: return
         val target = LinkedMissionDestination(info.name.orEmpty().trim(), info.address.orEmpty().trim(),
-            simulated = mode == NaviMode.SIMULATION_GUIDING)
+            simulated = mode == NaviMode.SIMULATION_GUIDING,
+            latitude = info.latitude.takeIf { it != 0.0 }, longitude = info.longitude.takeIf { it != 0.0 })
         if (target.label.isBlank()) {
             endRequest("안내 중인 목적지를 확인할 수 없어요.")
         } else {
@@ -245,11 +351,63 @@ internal class MissionNavigation(
     private fun releaseClient() {
         connectionTimeout?.cancel()
         connectionTimeout = null
+        pendingCalls.clear()
         val client = helper ?: return
         helper = null
         connected = false
         runCatching { client.removeListener(listener) }
         runCatching { client.release() }
+    }
+
+    /**
+     * While guiding, if Pleos navigation predicts a low battery at the destination, offer the nearby
+     * charger list as a heads-up notification over the navigation screen. The action opens the
+     * native navigation charger search (no ORBIT X screen), so the driver can add a stop there.
+     */
+    private fun maybeSuggestCharging(plan: RoutePlan) {
+        val arrival = plan.arrivalBatteryPercent?.takeIf { it <= ChargingSuggestionPercent }
+        val current = vehicleBatteryPercent?.takeIf { it <= LowBatteryPercent }
+        if (arrival == null && current == null) return
+        val key = plan.name.ifBlank { "route" }
+        if (suggestedRoute == key) return
+        suggestedRoute = key
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.createNotificationChannel(
+            NotificationChannel(SUGGESTION_CHANNEL, "주행 중 경로 제안", NotificationManager.IMPORTANCE_HIGH),
+        )
+        val chargers = PendingIntent.getBroadcast(
+            context, 1, Intent(context, RouteSuggestionReceiver::class.java).setAction(RouteSuggestionReceiver.ACTION_CHARGERS),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val later = PendingIntent.getBroadcast(
+            context, 2, Intent(context, RouteSuggestionReceiver::class.java).setAction(RouteSuggestionReceiver.ACTION_LATER),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val destination = plan.name.ifBlank { "목적지" }
+        manager.notify(SUGGESTION_NOTIFICATION_ID, Notification.Builder(context, SUGGESTION_CHANNEL)
+            .setSmallIcon(R.drawable.orbit_launcher_mark)
+            .setCategory(Notification.CATEGORY_NAVIGATION)
+            .setContentTitle(if (arrival != null) "$destination 도착 시 배터리 약 $arrival%" else "배터리 $current% · $destination 안내 중")
+            .setContentText("가는 길에 충전소를 경유지로 추가할까요?")
+            .addAction(Notification.Action.Builder(null, "충전소 경유", chargers).build())
+            .addAction(Notification.Action.Builder(null, "나중에", later).build())
+            .setAutoCancel(true)
+            .build())
+        data.recordRouteSuggestion(
+            if (arrival != null) "충전 경유 제안 · 도착 예상 $arrival%" else "충전 경유 제안 · 출발 배터리 $current%", null,
+        )
+    }
+
+    /** Called from the notification action: opens native navigation, which works while driving. */
+    fun onSuggestionAction(accepted: Boolean) {
+        context.getSystemService(NotificationManager::class.java)?.cancel(SUGGESTION_NOTIFICATION_ID)
+        data.recordRouteSuggestion(null, accepted)
+        if (!accepted) return
+        screenStatus = "주행 중 제안에서 주변 충전소를 열었어요."
+        withClient { runCatching { it.requestNavigationScreen(NavigationScreenRequest.NearbyChargingStations) } }
     }
 
     private fun postCompletion(result: MissionCompletion) {
@@ -272,8 +430,19 @@ internal class MissionNavigation(
             .build())
     }
 
-    private companion object {
-        const val CHANNEL = "mission-completion"
-        const val COMPLETION_NOTIFICATION_ID = 1001
+    companion object {
+        private const val CHANNEL = "mission-completion"
+        private const val COMPLETION_NOTIFICATION_ID = 1001
+        private const val SUGGESTION_CHANNEL = "route-suggestion"
+        private const val SUGGESTION_NOTIFICATION_ID = 1002
+        private const val ChargingSuggestionPercent = 30
+        private const val LowBatteryPercent = 25
+
+        /** The live instance, so notification actions can reach NaviHelper without opening the app. */
+        @Volatile var active: MissionNavigation? = null
+    }
+
+    init {
+        active = this
     }
 }
