@@ -1304,7 +1304,8 @@ private fun League(data: OrbitData, vehicle: VehicleAccess?, parked: Boolean, br
         "telluride" in normalizedModel && ("hybrid" in normalizedModel || "hev" in normalizedModel) -> LeagueSeries.Telluride
         else -> null
     }
-    val demoProfile = model == null && vehicle?.usesPleosDemoProfile == true
+    val demoProfile = vehicle?.usesPleosDemoProfile == true &&
+        (normalizedModel.isEmpty() || normalizedModel == "connect")
     val ownSeries = matchedSeries ?: LeagueSeries.Ioniq5.takeIf { demoProfile }
     val mySeries = if (showDemo) LeagueSeries.Ioniq5 else ownSeries
     val options = LeagueSeries.entries.filter { it != ownSeries }
