@@ -1,22 +1,43 @@
 # ORBIT X
 
-ORBIT X는 Pleos Connect에서 주행 효율을 확인하고 차량 기능을 체험하는 Android Automotive 앱입니다. PLAY에서 드라이브와 미션을 진행하고, X-LAB에서 기능을 비교하거나 의견을 남기면 MY ORBIT에서 참여 기록과 시연 포인트를 확인할 수 있습니다.
+**ORBIT X**는 Pleos Connect에서 운전자가 차량 기능을 써 보고, 의견과 주행 기록을 남기며 포인트를 모으는 Android Automotive 앱입니다. 현대자동차그룹 차량용 앱 개발 공모전을 위해 만들었습니다.
 
-[빌드 및 연결](#빌드-및-연결) · [효율 리그](#주행-효율-리그) · [드라이브](#드라이브) · [공조와 미션](#공조와-미션) · [기록 초기화](#기록-초기화)
+[앱 둘러보기](#앱-둘러보기) · [빌드 및 연결](#빌드-및-연결) · [효율 리그](#주행-효율-리그) · [드라이브](#드라이브) · [공조와 미션](#공조와-미션) · [기록 초기화](#기록-초기화) · [SDK와 검증 범위](#sdk와-검증-범위)
+
+## 앱 둘러보기
+
+| 화면 | 할 수 있는 일 |
+| --- | --- |
+| **홈** | 회전하는 차량과 시간대별 인사말을 보고, 하단 탭으로 이동합니다. 라이트·다크 표시는 Pleos에서 앱에 전달하는 시스템 테마를 따릅니다. |
+| **PLAY** | 내 차종의 월간 주행거리와 추정 전비·연비를 보고, 드라이브나 데일리·장기 미션에 참여합니다. |
+| **X-LAB** | 사용자 제안이나 개발팀 아이디어를 정식 배포 전에 체험하고 평가하는 공간입니다. 착석 연동 공조는 신기능의 예시이고, 도어 잠금 OTA는 업데이트 UX를 평가하는 별도 체험입니다. |
+| **MY ORBIT** | 참여 기록과 포인트를 확인하고, 홈 인사말의 이름을 설정하거나 시연 기록을 초기화합니다. |
+
+운전자는 기능을 직접 써 볼 기회와 참여 보상을 받고, 개발팀은 어떤 기능이 필요한지, 어디서 사용이 막혔는지, 새 기능을 계속 쓸 의향이 있는지를 확인할 수 있습니다. 현재 버전은 이 흐름을 기기 안에서 시연합니다.
 
 ## 빌드 및 연결
 
-1. Android Studio에서 저장소 루트를 열고 Android SDK API 37을 설치합니다. Gradle Wrapper는 9.6.0이고 프로젝트의 Gradle 데몬 JVM은 Java 25를 사용합니다.
-2. Android Studio Device Manager에서 **Pleos Connect v2.1.0** 가상 기기를 실행합니다. Gradle을 동기화하고 Run 대상으로 Pleos 가상 기기를 선택해 **app**을 실행합니다.
+| 항목 | 개발·시연 환경 |
+| --- | --- |
+| 에뮬레이터 | **Pleos Connect v2.1.0**, Android 14 / API 34, x86_64 |
+| 화면 | **2560 × 1440 px**, 160 dpi. Pleos 분할 화면에서 1/3·2/3 앱 영역에 맞춰 배치합니다. |
+| 앱 빌드 | Kotlin · Jetpack Compose · Gradle Wrapper 9.6.0 · Gradle 데몬 JVM 25 |
+| Android SDK | compile/target API 37 · min API 28. 빌드 SDK와 에뮬레이터 시스템 이미지 버전은 별개입니다. |
+
+1. Android Studio에서 저장소 루트를 열고 SDK Manager에서 **Android SDK API 37**과 **Android SDK Platform-Tools**를 설치합니다. 첫 Gradle 동기화에는 Pleos SDK 의존성을 내려받을 수 있는 네트워크가 필요합니다.
+2. [Pleos 공식 개발 가이드](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/use-vehicle-emulator)에 따라 Pleos 가상 기기를 준비합니다. Android Studio **Device Manager**에서 기기를 시작하고 Run 대상으로 선택한 뒤 **app**을 실행합니다.
 3. 터미널에서 다음 명령으로 디버그 APK를 빌드하거나, 빌드된 APK를 설치할 수 있습니다.
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 adb devices
 adb -s emulator-5554 install -r --user 10 app/build/outputs/apk/debug/app-debug.apk
+adb -s emulator-5554 shell am start --user 10 -n com.example.orbitx/.MainActivity
 ```
 
 기기 번호와 사용자 번호는 환경에 맞춰 바꿉니다. 활성 사용자 번호는 `adb -s emulator-5554 shell am get-current-user`로 확인합니다. `adb`를 찾을 수 없으면 Android SDK의 `platform-tools` 폴더에서 실행하거나 해당 폴더를 PATH에 추가합니다. Windows 기본 SDK 경로는 `%LOCALAPPDATA%\Android\Sdk`입니다.
+
+**APK 위치:** 위 빌드로 생성되는 시연용 APK는 `app/build/outputs/apk/debug/app-debug.apk`입니다. 제출용 release APK는 현재 저장소에 포함되어 있지 않습니다. 공모전에는 실행 가능한 release APK를 `apk/` 폴더 또는 GitHub Releases에 별도로 등록해야 합니다. [공모전 GitHub 제출 안내](https://appdevchallenge.auto-hmg.io/guide/submission#files)
 
 ### Virtual Console 열기
 
@@ -31,6 +52,7 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 | 확인할 기능 | 콘솔에서 조작할 카드 | ORBIT X에서 볼 화면 |
 | --- | --- | --- |
 | 전기차 추정 전비 | **Motion → Odometer**, **Energy → Battery Energy** | PLAY → 주행 효율 리그 |
+| 충전 전후 집계 | **Energy → Charge Switch**, **Battery Energy** | PLAY → 주행 효율 리그 |
 | 저잔량 추천 | **Energy → Battery SOC** | PLAY → 드라이브 |
 | 동승자 추천 및 공조 | **Convenience → Seat Occupancy** | PLAY → 드라이브 또는 X-LAB → 착석 연동 공조 |
 | 주행 제한 | **Motion → Gear Selection** | ORBIT X 화면을 띄운 상태에서 P → D → P |
@@ -38,6 +60,8 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 | 도어 잠금 OTA 평가와 모의 도착 | ORBIT X 화면 안의 버튼 | X-LAB → OTA 업데이트 평가 또는 PLAY → 드라이브 |
 
 카드별 설정 범위는 공식 콘솔 가이드에서 확인할 수 있습니다. [Pleos 콘솔 카드 가이드](https://document.pleos.ai/docs/pleos-only/app-test-guide/virtual-console-guide)
+
+**빠른 시연 순서:** P에서 전비 구간 입력 → 동승석 착석 감지와 드라이브 추천 → 착석 연동 공조 켜기 → OTA 평가와 포인트 확인 → D에서 앱 잠금 확인 → P로 복귀.
 
 ## 주행 효율 리그
 
@@ -52,6 +76,8 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 
 충전 중 샘플과 배터리 잔량이 증가한 구간은 소비량에 넣지 않습니다. 충전 후 잔량을 기준으로 새 구간을 계산하고, 이미 쌓인 월간 거리와 전비 기록은 유지합니다. **Charge Port**는 덮개 상태만 표시하므로 열기만 해서는 충전으로 판단하지 않습니다.
 
+**월간 추정 전비 = 유효 구간의 거리 합계 ÷ 같은 구간의 배터리 순사용량 합계**입니다. 그래서 이달 전체 주행거리와 효율 계산에 포함된 거리가 다를 수 있습니다. 500 km는 순위 기준이며, 월이 바뀌면 새 시즌의 거리와 소비량을 별도로 집계합니다.
+
 **Odometer에 HTTP 400이 뜨면** 먼저 앱의 **계기판** 값을 확인하고 그 값보다 큰 정수 km를 입력합니다. 예를 들어 현재 12,000 km면 12,012 km를 사용합니다. 이미 늘린 누적거리를 0으로 되돌리면 이 환경에서 요청이 거절될 수 있습니다. 화면 아래의 슬라이더 숫자만 바뀌고 오류가 남아 있으면 적용된 거리로 보지 말고 앱의 계기판 값으로 확인합니다.
 
 거리만 늘고 전비가 수집 중이면 **Charge Switch가 Off**인지, 배터리 잔량이 실제로 줄었는지 확인하세요. 앱을 벗어났거나 두 변경 사이에 30초가 넘었다면 현재 값에서 새 구간을 만들어 보세요. **Battery SOC**, **Remaining Range**, **Battery Capacity**, **Cruise Target Speed**는 이 계산에 사용하지 않습니다.
@@ -62,6 +88,7 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 
 - **월 500 km**는 순위 참여를 설명하는 거리 기준입니다. 추정치는 소비량이 충분하면 그 전부터 표시됩니다. 현재 표시 기준은 전기 0.2 kWh 이상, 연료 0.5 L 이상입니다.
 - **내 차종 리그**는 차량 기록과 해당 차종의 시연 순위를 보여줍니다. **다른 리그 구경하기**에서는 다른 차종의 예시 순위를 확인합니다.
+- 리그 예시는 제네시스 **GV90**, 현대 **아이오닉 5**, 현대 **아반떼 N**, 기아 **텔루라이드 하이브리드**입니다. 1·2·3위 시상 예시는 **50,000 / 20,000 / 10,000 P**이며 실제 지급과 연결되지 않습니다.
 - 순위만 빠르게 보여주려면 **예시 기록으로 시연 → 예시 주행 +24 km**를 이용합니다. 500 km에 도달하면 저장한 이름과 예시 전비 6.0 km/kWh가 시연 순위에 표시됩니다.
 - 월간 거리는 월별 기준점부터 집계합니다. 효율은 연속해서 읽은 구간으로 계산하며 앱이 중단됐거나 신호가 끊긴 동안의 소비량은 소급 계산하지 않습니다.
 
@@ -69,20 +96,30 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 
 1. 기어를 **P**에 두고 **PLAY → 드라이브**를 엽니다.
 2. 저잔량 추천을 보려면 **Energy → Battery SOC**를 **20%**로 설정합니다. 앱은 25% 이하에서 **충전 들르기**를 우선 추천합니다.
-3. 동승자 추천을 보려면 SOC를 25%보다 높게 바꾸고 **Convenience → Seat Occupancy → Passenger**를 **Occupied**로 설정합니다. 앱에서 동승자 추천이 뜨는지 확인합니다. 기본 풍경 추천은 **Passenger → Empty** 상태에서 확인할 수 있습니다.
+3. 동승자 추천을 보려면 SOC를 25%보다 높게 바꾸고 **Convenience → Seat Occupancy → Passenger**를 **Occupied**로 설정합니다. 앱은 이때 **동승자와 나들이**를 추천합니다. 배터리가 충분하고 동승자가 없으면 **기분 전환**을 제안하며, 최근 7일 중 3일 이상 같은 목적지에 도착했다면 그 이유도 함께 보여줍니다. 추천은 자동으로 표시되지만 드라이브 시작은 운전자가 선택합니다.
 4. 순정 내비를 시연하려면 모드를 시작하고 내비에서 길 안내를 시작합니다. ORBIT X로 돌아와 **현재 목적지 연결**을 누릅니다. 연결된 목적지의 실제 도착 이벤트가 들어오면 도착 기록을 남깁니다.
 5. 내비 연결 없이 완료 흐름을 보여주려면 목적지를 연결하기 전에 **도착 시연하기**를 누르고 화면 안내에 따라 기록을 완료합니다. 결과는 **MY ORBIT → 최근 참여 내역**에서 확인합니다.
 
-기어에 따른 화면 전환만 확인하려면 **Motion → Gear Selection**에서 **D**로 바꿔 주행 제한을 확인한 다음 **P**로 돌아옵니다. 실제 내비의 목적지 연결과 도착 이벤트는 에뮬레이터의 내비 서비스 상태에 따라 달라집니다.
+기어에 따른 화면 전환만 확인하려면 **Motion → Gear Selection**에서 **D**로 바꿔 ORBIT X가 잠기는지 확인한 다음 **P**로 돌아옵니다. 잠금은 ORBIT X 앱 영역 안에서 동작합니다. 실제 내비의 목적지 연결과 도착 이벤트는 에뮬레이터의 내비 서비스 상태에 따라 달라집니다.
 
 ## 공조와 미션
+
+| 분류 | 미션 | 시연 보상 |
+| --- | --- | ---: |
+| 데일리 | 도어 잠금 업데이트 평가 | 2,000 P |
+| 데일리 | 나에게 맞는 드라이브 | 1,000 P |
+| 데일리 | 동승자 탑승 공조 비교 | 1,000 P |
+| 데일리 | 앞좌석 온도 동기화 써보기 | 1,000 P |
+| 장기 | 착석 연동 공조 7일 써보기 | 3,000 P |
+
+표는 처음 완료할 때 받을 수 있는 포인트입니다. 같은 미션의 완료 내역과 지급 한도에 따라 받을 수 있는 값은 달라집니다. 드라이브 적립은 주 2회, 앱 내 적립은 월 80,000 P까지입니다. **데일리**는 하루 안에 해볼 수 있는 미션 묶음이며, 모든 평가가 매일 초기화되는 것은 아닙니다.
 
 ### 착석 연동 공조
 
 1. **Motion → Gear Selection**을 **P**로 둡니다.
 2. **X-LAB → 착석 연동 공조 → 자동 공조**에서 **착석 연동 공조** 스위치를 켭니다.
 3. 콘솔 **Convenience → Seat Occupancy**에서 운전석과 동승석을 **Empty**에서 **Occupied**로 한 자리씩 바꿉니다. 뒷좌석도 좌우를 따로 확인할 수 있습니다.
-4. ORBIT X의 좌석별 착석 표시와 **A/C ON/OFF**를 확인합니다. 공조는 차량이 제어를 허용한 구역 단위로 동작합니다. 같은 구역을 공유하는 좌석은 함께 반응할 수 있습니다.
+4. ORBIT X의 좌석별 착석 표시와 **A/C ON/OFF**를 확인합니다. 네 좌석의 착석과 실내 목표 **23°C**를 기준으로, 주차 중 SDK가 지원하는 공조와 좌석 기능에 제어를 요청합니다. 같은 공조 구역을 공유하는 좌석은 함께 반응할 수 있으며, 실제 반영 여부는 앱 표시와 순정 공조에서 확인합니다.
 5. 장기 미션의 첫날을 보여주려면 주차 중 자동 제어를 켜고, 착석한 구역의 공조가 확인된 상태로 이 화면을 **1분간** 유지합니다. **PLAY → 미션**에서 진행도를 확인합니다. 하루 한 번, 서로 다른 7일을 기록한 뒤 의견을 제출하는 미션입니다.
 
 ### 수동 전환과 자동 전환 비교
@@ -107,8 +144,10 @@ adb -s emulator-5554 forward tcp:8088 tcp:8088
 
 | 연동 | 사용하는 신호와 화면 |
 | --- | --- |
-| Pleos Vehicle SDK 2.3.2 | 기어, 착석, 공조, 누적거리, 배터리, 차량 제공 효율 |
+| Pleos Vehicle SDK 2.3.2 | 기어·착석, 지원 구역의 공조 읽기·제어, 누적거리, 배터리 잔량·충전 스위치, 차량 제공 효율 참고값 |
 | Pleos NaviHelper 3.0.5 | 순정 내비 화면 요청, 목적지 연결, 도착 이벤트 |
 | Android Automotive OS | 주행 제한, 차량 모델, 지원 차량의 연료량 |
 
-리그 순위와 포인트는 시연용입니다. 순정 내비의 전체 도착 흐름과 실차 연료량 기반 연비는 추가 검증이 필요합니다. 블루멤버스 전환과 순정 내비 내 추천 카드는 향후 제휴·플랫폼 연동 범위입니다. [Pleos Connect SDK](https://document.pleos.ai/en/api-reference/connect-sdk-pleos) · [NaviHelper](https://document.pleos.ai/api-reference/connect-sdk-pleos/NaviHelper/intro)
+시연 순위, 도어 잠금 OTA 체험, 내비 없이 하는 모의 도착은 앱에서 재현합니다. OTA 체험 버튼은 차량 도어를 잠그거나 차량 소프트웨어를 설치하지 않습니다. 실제 내비의 전체 도착 흐름과 실차 연료량 기반 연비는 추가 검증이 필요합니다. 월간 전비 계산은 신호가 따로 도착하는 경우, 충전 구간을 빼는 경우, 신호가 끊겼다가 다시 들어오는 경우를 단위 테스트로 검증합니다.
+
+향후에는 참여 동의를 받은 사용자 피드백을 실험별로 집계해 출시 판단에 활용하고, 차량별 월간 순위를 서버에서 집계하는 방향으로 확장할 수 있습니다. 블루멤버스 전환과 순정 내비 안에서의 추천 카드는 제휴와 플랫폼 권한을 전제로 한 제안입니다. [Pleos Connect SDK](https://document.pleos.ai/en/api-reference/connect-sdk-pleos) · [NaviHelper](https://document.pleos.ai/api-reference/connect-sdk-pleos/NaviHelper/intro)
