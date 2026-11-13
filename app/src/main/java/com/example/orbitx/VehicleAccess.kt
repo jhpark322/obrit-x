@@ -78,7 +78,12 @@ internal data class DrivingTelemetry(
     val batteryPercent: Int?,
     val fuelPercent: Int?,
 )
-internal data class LeagueVehicleSample(val odometerKm: Float?, val batteryKwh: Float?, val fuelLiters: Float? = null)
+internal data class LeagueVehicleSample(
+    val odometerKm: Float?,
+    val batteryKwh: Float?,
+    val fuelLiters: Float? = null,
+    val chargeSwitchOn: Boolean? = null,
+)
 
 internal class VehicleAccess(private val context: Context, private val scope: CoroutineScope) {
     private var gear by mutableStateOf<VehicleGear?>(null)
@@ -204,7 +209,9 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
         val vehicle = sdk ?: return null
         return coroutineScope {
             val odometer = async { readVehicleValue(vehicle.getOdometer()::getCurrentDistanceDriven) }
-            val battery = async { readVehicleValue(vehicle.getEvBattery()::getEvBatteryLevel) }
+            val evBattery = vehicle.getEvBattery()
+            val battery = async { readVehicleValue(evBattery::getEvBatteryLevel) }
+            val chargeSwitch = async { readVehicleValue(evBattery::getEvChargeSwitchState) }
             val fuel = async {
                 if (context.checkSelfPermission(Car.PERMISSION_ENERGY) == PackageManager.PERMISSION_GRANTED) {
                     readCarProperty<Float>(VehiclePropertyIds.FUEL_LEVEL)
@@ -215,8 +222,9 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
             if (sdk !== vehicle) return@coroutineScope null
             LeagueVehicleSample(
                 km?.takeIf { it.isFinite() && it >= 0f },
-                wh?.takeIf { it.isFinite() && it > 0f }?.div(1_000f),
+                wh?.takeIf { it.isFinite() && it >= 0f }?.div(1_000f),
                 fuel.await()?.takeIf { it.isFinite() && it >= 0f }?.div(1_000f),
+                chargeSwitch.await(),
             )
         }
     }

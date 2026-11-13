@@ -43,7 +43,49 @@ internal fun fuelDrivingInterval(previous: LeagueVehicleSample, current: LeagueV
 internal fun evDrivingInterval(previous: LeagueVehicleSample, current: LeagueVehicleSample): EvEstimateTotals? {
     val distance = (current.odometerKm ?: return null) - (previous.odometerKm ?: return null)
     val energy = (previous.batteryKwh ?: return null) - (current.batteryKwh ?: return null)
-    return EvEstimateTotals(distance, energy).takeIf { distance > 0f && energy >= 0f }
+    return EvEstimateTotals(distance, energy).takeIf {
+        distance.isFinite() && energy.isFinite() && distance > 0f && energy > 0f
+    }
+}
+
+internal class EvIntervalTracker {
+    private data class TimedSample(val value: LeagueVehicleSample, val at: Long)
+
+    private var previous: TimedSample? = null
+    private var pending: TimedSample? = null
+
+    fun reset() {
+        previous = null
+        pending = null
+    }
+
+    fun record(sample: LeagueVehicleSample?, now: Long): EvEstimateTotals? {
+        val km = sample?.odometerKm
+        val kwh = sample?.batteryKwh
+        if (sample == null || sample.chargeSwitchOn == true || km == null || !km.isFinite() || km < 0f ||
+            kwh == null || !kwh.isFinite() || kwh < 0f
+        ) {
+            reset()
+            return null
+        }
+
+        val last = previous
+        previous = TimedSample(sample, now)
+        if (last == null || now - last.at !in 1L..15_000L ||
+            km < last.value.odometerKm!! || kwh > last.value.batteryKwh!!
+        ) {
+            pending = null
+            return null
+        }
+        if (pending?.let { now - it.at > 30_000L } == true) pending = null
+        if (km == last.value.odometerKm && kwh == last.value.batteryKwh) return null
+
+        // Distance and battery properties can arrive on different polls.
+        val baseline = pending ?: TimedSample(last.value, now).also { pending = it }
+        val interval = evDrivingInterval(baseline.value, sample) ?: return null
+        pending = null
+        return interval
+    }
 }
 
 internal enum class Variant(val title: String) {
@@ -307,11 +349,14 @@ internal class OrbitData(context: Context) {
     private var lastLeagueSample: LeagueVehicleSample? = null
     private var lastSampleAt = 0L
     private var lastSampleMonth: YearMonth? = null
+    private val evIntervalTracker = EvIntervalTracker()
     private var evEstimateMonth by mutableStateOf(prefs.getString("evEstimateMonth", null))
     private var evEstimate by mutableStateOf(
         EvEstimateTotals(prefs.getFloat("evEstimateKm", 0f), prefs.getFloat("evEstimateKwh", 0f)),
     )
-    val monthlyEvEstimate get() = evEstimate.takeIf { evEstimateMonth == leagueSeason.toString() }
+    val monthlyEvEstimate get() = evEstimate.takeIf {
+        evEstimateMonth == leagueSeason.toString() && it.energyKwh > 0f
+    }
     private var fuelEstimateMonth by mutableStateOf(prefs.getString("fuelEstimateMonth", null))
     private var fuelEstimate by mutableStateOf(
         FuelEstimateTotals(prefs.getFloat("fuelEstimateKm", 0f), prefs.getFloat("fuelEstimateLiters", 0f)),
@@ -379,6 +424,7 @@ internal class OrbitData(context: Context) {
         lastLeagueSample = null
         lastSampleAt = 0
         lastSampleMonth = null
+        evIntervalTracker.reset()
         evEstimateMonth = null
         evEstimate = EvEstimateTotals(0f, 0f)
         fuelEstimateMonth = null
@@ -454,7 +500,10 @@ internal class OrbitData(context: Context) {
 
     fun refreshLeagueSeason() {
         val month = YearMonth.now()
-        if (leagueSeason != month) monthlyVehicleDistanceKm = null
+        if (leagueSeason != month) {
+            monthlyVehicleDistanceKm = null
+            evIntervalTracker.reset()
+        }
         leagueSeason = month
     }
 
@@ -481,8 +530,8 @@ internal class OrbitData(context: Context) {
         lastSampleMonth = leagueSeason
         leagueEnergyAvailable = sample?.let { it.odometerKm != null && it.batteryKwh != null }
         sample?.odometerKm?.let { monthlyVehicleDistanceKm = leagueDistanceFromOdometer(it) }
-        if (previous == null || sample == null) return
-        fuelDrivingInterval(previous, sample)?.let { interval ->
+        val fuelInterval = if (previous != null && sample != null) fuelDrivingInterval(previous, sample) else null
+        fuelInterval?.let { interval ->
             val total = monthlyFuelEstimate
             val updated = FuelEstimateTotals(
                 (total?.distanceKm ?: 0f) + interval.distanceKm,
@@ -495,7 +544,7 @@ internal class OrbitData(context: Context) {
             fuelEstimateMonth = month
             fuelEstimate = updated
         }
-        val interval = evDrivingInterval(previous, sample) ?: return
+        val interval = evIntervalTracker.record(sample, now) ?: return
         val total = monthlyEvEstimate
         val updated = EvEstimateTotals(
             (total?.distanceKm ?: 0f) + interval.distanceKm,
