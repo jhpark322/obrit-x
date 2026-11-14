@@ -2750,6 +2750,7 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
     AdaptivePair(
         first = { modifier -> TrialMetrics("A · ${Variant.A.labelFor(comparison.task)}", comparison.baseline, modifier, comparison.task != ClimateTask.PassengerArrival) },
         second = { modifier -> TrialMetrics("B · ${Variant.B.labelFor(comparison.task)}", comparison.preset, modifier, comparison.task != ClimateTask.PassengerArrival) },
+        matchHeight = true,
     )
     Panel {
         Eyebrow("개선에 쓰이는 기록")
@@ -2792,12 +2793,12 @@ private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier,
         } else if (showTiming && result.signal != null) {
             // Real-car automatic round: the point is that the driver did nothing.
             Text("조작 ${result.touches}회", style = MaterialTheme.typography.displaySmall)
-            Text("앉자 SYNC가 켜졌어요", color = Muted)
+            Text("앉자 SYNC가 켜졌어요" + (result.signal?.let { " · ${it.label}" } ?: ""), color = Muted)
         } else {
             Text("${result.touches}탭", style = MaterialTheme.typography.displaySmall)
             if (showTiming) Text("${seconds(result.milliseconds)}초  ·  오조작 ${result.errors}회", color = Muted)
         }
-        result.signal?.let { Text(it.label, color = Muted) }
+        if (result.touches >= 0 && !(showTiming && result.signal != null)) result.signal?.let { Text(it.label, color = Muted) }
     }
 }
 
