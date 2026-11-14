@@ -44,6 +44,9 @@
         <receiver
             android:name=".RouteSuggestionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".ExperimentAnswerReceiver"
+            android:exported="false" />
         <service
             android:name=".DriveSessionService"
             android:exported="false"

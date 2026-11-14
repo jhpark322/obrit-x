@@ -1450,21 +1450,27 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                 if (notes.isNotEmpty()) Text(notes.joinToString("  ·  "), color = Muted, style = MaterialTheme.typography.bodyMedium)
             }
         }
-        // One question at a time: mood first, then whether the recommendation fit. Purpose can be fixed afterwards.
+        // One question at a time: mood, whether the recommendation fit, then one X-LAB experiment question
+        // in rotation. Purpose can be fixed afterwards.
         val entry = data.driveJournal.firstOrNull()?.takeIf { it.mode == mission }
         val feedback = data.lastFeedback
+        val experiment = labExperiment(data.tripExperimentId)
         var editingPurpose by rememberSaveable { mutableStateOf(false) }
         when {
             entry != null && entry.mood == null -> ReportQuestion("오늘 드라이브를 한 줄로 남겨 볼까요?", DriveMoodOptions) {
                 data.saveDriveMood(it)
             }
             feedback == null -> ReportQuestion("추천이 이번 이동에 맞았나요?", DriveFeedbackOptions) { data.saveDriveFeedback(it) }
+            experiment != null && data.tripExperimentAnswer == null -> {
+                Eyebrow("X-LAB 실험 %02d  ·  %s".format(experiment.number, experiment.title))
+                ReportQuestion(experiment.driveQuestion, experiment.answers) { data.saveExperimentAnswer(it) }
+            }
             editingPurpose -> ReportQuestion("이번 드라이브 목적", DriveMode.entries.map { it.title }) {
                 data.correctDriveMode(it)
                 editingPurpose = false
             }
             else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(listOfNotNull(entry?.mood?.let { "“$it”" }, feedback).joinToString("  ·  "),
+                Text(listOfNotNull(entry?.mood?.let { "“$it”" }, feedback, data.tripExperimentAnswer).joinToString("  ·  "),
                     Modifier.weight(1f), color = OrbitBlue, style = MaterialTheme.typography.bodyMedium)
                 TextButton(onClick = { editingPurpose = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("목적 바꾸기", color = Muted)
@@ -2118,40 +2124,32 @@ private fun Arrival(onFinish: (String?) -> Unit) {
     }
 }
 
-private val ExperimentStages = listOf("발견", "시험", "배포", "재확인")
-
-/** One improvement and where it sits in the discover → test → deploy → recheck loop. */
+/** The discover → test → deploy → recheck track, with the current stage filled in. */
 @Composable
-private fun ExperimentStage(title: String, note: String, stage: Int) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(note, color = Muted, style = MaterialTheme.typography.bodySmall)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ExperimentStages.forEachIndexed { index, label ->
-                val current = index == stage
-                val shape = RoundedCornerShape(50)
-                Box(
-                    Modifier
-                        .clip(shape)
-                        .background(if (current) MaterialTheme.colorScheme.inverseSurface else OrbitPaper)
-                        .border(1.dp, if (index <= stage) MaterialTheme.colorScheme.inverseSurface else Border, shape)
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                        color = when {
-                            current -> MaterialTheme.colorScheme.inverseOnSurface
-                            index < stage -> OrbitInk
-                            else -> Muted
-                        },
-                    )
-                }
-                if (index < ExperimentStages.lastIndex) Text("→", color = Muted, style = MaterialTheme.typography.labelMedium)
+private fun StageTrack(stage: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        ExperimentStages.forEachIndexed { index, label ->
+            val current = index == stage
+            val shape = RoundedCornerShape(50)
+            Box(
+                Modifier
+                    .clip(shape)
+                    .background(if (current) MaterialTheme.colorScheme.inverseSurface else OrbitPaper)
+                    .border(1.dp, if (index <= stage) MaterialTheme.colorScheme.inverseSurface else Border, shape)
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        current -> MaterialTheme.colorScheme.inverseOnSurface
+                        index < stage -> OrbitInk
+                        else -> Muted
+                    },
+                )
             }
+            if (index < ExperimentStages.lastIndex) Text("→", color = Muted, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -2181,52 +2179,48 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
         R.drawable.orbit_lab, "아이디어·피드백", "필요한 차량 기능을 제안하거나 체험 후 의견을 남겨요.",
         "의견 남기기", Modifier.fillMaxWidth().heightIn(min = 148.dp), onFeedback,
     )
-    AdaptivePair(
-        first = { modifier -> ImprovementStages(modifier) },
-        second = { modifier -> NextExperiments(modifier) },
-        matchHeight = true,
-    )
-}
-
-@Composable
-private fun ImprovementStages(modifier: Modifier) {
-    Panel(modifier) {
-        Text("개선이 어디까지 왔나요", style = MaterialTheme.typography.titleLarge)
-        Text("불편을 발견하고, X-LAB에서 시험하고, 효과가 확인된 개선만 OTA로 배포한 뒤 다시 확인해요.", color = Muted)
-        ExperimentStage("착석 연동 공조", "빈 좌석 공조 낭비를 X-LAB 체험과 같은 차종 비교로 시험 중", stage = 1)
-        ExperimentStage("도어 잠금 버튼", "OTA로 배포된 버튼을 실제 도어로 써 보고 평가 중", stage = 3)
-        ExperimentStage("다음 실험 4건", "지금 Pleos Connect에서 불편하다고 알려진 점", stage = 0)
+    Panel {
+        Text("실험 목록", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "모든 실험은 주행 효율 리그와 드라이브 리포트 질문을 함께 쓰고, 실험마다 하나를 더해요. " +
+                "불편을 발견하고 시험한 뒤, 효과가 확인된 개선만 OTA로 배포하고 다시 확인해요.",
+            color = Muted,
+        )
+    }
+    // Every experiment is the same bundle of settings, so new ones need no new PLAY screen.
+    LabExperiments.chunked(2).forEach { pair ->
+        AdaptivePair(
+            first = { modifier -> ExperimentCard(pair[0], data.experimentResponses[pair[0].id] ?: 0, modifier) },
+            second = { modifier ->
+                pair.getOrNull(1)?.let { ExperimentCard(it, data.experimentResponses[it.id] ?: 0, modifier) }
+            },
+            matchHeight = true,
+        )
     }
 }
 
 @Composable
-private fun NextExperiments(modifier: Modifier) {
+private fun ExperimentCard(experiment: LabExperiment, responses: Int, modifier: Modifier) {
     Panel(modifier) {
-        Text("다음 실험", style = MaterialTheme.typography.titleLarge)
-        Text("지금 Pleos Connect에서 불편한 점을 개선안으로 먼저 검증해요.", color = Muted)
-        // Each item is a known pain point of the current Pleos Connect, not a made-up idea.
-        listOf(
-            "실험 03  ·  송풍구 방향 바로 조절" to
-                "숨은 송풍구 방향을 화면 메뉴 여러 단계에서만 바꿀 수 있어요. 자주 쓰는 바람 방향을 한 번에 바꾸는 방식과 비교해요.",
-            "실험 04  ·  주행 정보 한곳에" to
-                "속도는 HUD, 주행가능거리는 9.9인치, 내비는 17인치로 흩어져 있어요. 필요한 정보를 한곳에 모은 배치와 비교해요.",
-            "실험 05  ·  Gleo 음성 명령" to
-                "‘에어컨 높여줘, 더워’ 같은 표현을 알아듣지 못할 때가 있어요. 주차 중 실패한 표현을 모아 다음 개선 과제로 넘겨요.",
-            "실험 06  ·  화면 멈춤 바로 신고" to
-                "화면이 멈추거나 재부팅되는 경우가 있어요. 문제가 생긴 순간을 탭 한 번으로 남겨 재현 정보를 모아요.",
-        ).forEach { (title, description) ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text(description, color = Muted, style = MaterialTheme.typography.bodyMedium)
-                }
-                Text("발견", color = Muted, style = MaterialTheme.typography.labelLarge)
-            }
+        Eyebrow("실험 %02d".format(experiment.number))
+        Text(experiment.title, style = MaterialTheme.typography.titleMedium)
+        Text(experiment.problem, color = Muted, style = MaterialTheme.typography.bodySmall)
+        StageTrack(experiment.stage)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ExperimentPlay("리그", experiment.leagueMetric ?: "숫자 비교 없음", active = experiment.leagueMetric != null)
+            ExperimentPlay("드라이브 질문", "응답 ${responses}건", active = true)
+            ExperimentPlay("추가", experiment.extraPlay + if (experiment.extraReady) "" else " (준비 중)",
+                active = experiment.extraReady)
         }
+    }
+}
+
+@Composable
+private fun ExperimentPlay(label: String, value: String, active: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.widthIn(min = 96.dp), color = Muted, style = MaterialTheme.typography.labelMedium)
+        Text(value, color = if (active) OrbitInk else Muted, style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal)
     }
 }
 

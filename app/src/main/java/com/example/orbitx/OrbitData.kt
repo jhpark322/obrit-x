@@ -284,7 +284,7 @@ internal enum class LabSubmissionType(val title: String, val prompt: String) {
 
 internal data class LabSubmission(val type: LabSubmissionType, val message: String, val date: String, val award: Int)
 
-internal class OrbitData(context: Context) {
+internal class OrbitData(private val context: Context) {
     private val prefs = context.getSharedPreferences("orbit-local", Context.MODE_PRIVATE)
 
     init {
@@ -486,6 +486,10 @@ internal class OrbitData(context: Context) {
         lastMissionDestination = null
         lastMissionSimulated = false
         lastFeedback = null
+        tripExperimentId = null
+        tripExperimentAnswer = null
+        tripExperimentPrompted = false
+        experimentResponses = emptyMap()
         lastPlayAward = 0
         comparison = null
         lastLabAward = 0
@@ -854,6 +858,52 @@ internal class OrbitData(context: Context) {
         lastFeedback = feedback
     }
 
+    /** The X-LAB experiment whose question this drive's report asks (one per drive, in rotation). */
+    var tripExperimentId by mutableStateOf(prefs.getString("tripExperiment", null))
+        private set
+    var tripExperimentAnswer by mutableStateOf(prefs.getString("tripExperimentAnswer", null))
+        private set
+    /** Whether the question was already offered as a notification over navigation. */
+    var tripExperimentPrompted = prefs.getBoolean("tripExperimentPrompted", false)
+        private set
+
+    fun markExperimentPrompted() {
+        tripExperimentPrompted = true
+        prefs.edit().putBoolean("tripExperimentPrompted", true).apply()
+    }
+    /** Drive-report answers per experiment id, kept on the device. */
+    var experimentResponses by mutableStateOf(loadExperimentResponses())
+        private set
+
+    private fun loadExperimentResponses(): Map<String, Int> {
+        val json = runCatching { JSONObject(prefs.getString("experimentResponses", "{}") ?: "{}") }.getOrNull()
+            ?: return emptyMap()
+        return json.keys().asSequence().associateWith { json.optInt(it) }
+    }
+
+    /** Picks the next experiment question for the report of the drive that just ended. */
+    private fun nextTripExperiment(): String {
+        val index = prefs.getInt("experimentRotation", 0)
+        val experiment = LabExperiments[index.mod(LabExperiments.size)]
+        prefs.edit().putInt("experimentRotation", index + 1).putString("tripExperiment", experiment.id)
+            .remove("tripExperimentAnswer").remove("tripExperimentPrompted").apply()
+        tripExperimentId = experiment.id
+        tripExperimentAnswer = null
+        tripExperimentPrompted = false
+        return experiment.id
+    }
+
+    fun saveExperimentAnswer(answer: String) {
+        val id = tripExperimentId ?: return
+        if (tripExperimentAnswer != null) return
+        val counts = experimentResponses + (id to (experimentResponses[id] ?: 0) + 1)
+        prefs.edit().putString("tripExperimentAnswer", answer)
+            .putString("experimentResponses", JSONObject(counts).toString()).apply()
+        tripExperimentAnswer = answer
+        experimentResponses = counts
+        ExperimentPrompt.cancel(context)
+    }
+
     fun recentRepeatedDriveDays(): Int = repeatedDriveDays(loadDriveVisits(), LocalDate.now())
 
     private fun loadDriveVisits(): List<DriveVisit> {
@@ -942,6 +992,7 @@ internal class OrbitData(context: Context) {
         prefs.edit().putString("tripReportMode", intent).putBoolean("tripReportPending", true)
             .remove("tripReportKm").remove("tripReportKwh").remove("tripReportCharged").apply()
         lastTrip = TripReport(intent, null, null, charged = false, pending = true)
+        nextTripExperiment()
         freshVehicleSample()?.let(::finishTripReport)
         val completion = MissionCompletion(intent, award, destinationLabel, simulated)
         if (destination != null) pendingMissionArrival = completion

@@ -23,6 +23,7 @@ internal object OrbitRuntime {
 
     lateinit var data: OrbitData
         private set
+    private lateinit var appContext: Context
     var vehicle: VehicleAccess? = null
         private set
     var navigation: MissionNavigation? = null
@@ -39,6 +40,7 @@ internal object OrbitRuntime {
     fun init(context: Context) {
         if (::data.isInitialized) return
         val app = context.applicationContext
+        appContext = app
         data = OrbitData(app)
         if (app.packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
             val source = VehicleAccess(app, scope)
@@ -55,6 +57,8 @@ internal object OrbitRuntime {
             while (isActive) {
                 data.recordLeagueSample(source.readLeagueSample())
                 navigation?.vehicleBatteryPercent = source.readBatteryPercent()
+                // After arrival, once parked, ask the drive's experiment question over navigation.
+                if (!uiVisible && source.parking == ParkingStatus.Parked) ExperimentPrompt.maybePost(appContext, data)
                 delay(SampleIntervalMs)
             }
         }
