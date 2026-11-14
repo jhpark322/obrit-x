@@ -2124,9 +2124,9 @@ private val ExperimentStages = listOf("발견", "시험", "배포", "재확인")
 @Composable
 private fun ExperimentStage(title: String, note: String, stage: Int) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(note, color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f, fill = false))
+            Text(note, color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ExperimentStages.forEachIndexed { index, label ->
@@ -2159,13 +2159,6 @@ private fun ExperimentStage(title: String, note: String, stage: Int) {
 @Composable
 private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Unit, onFeedback: () -> Unit) {
     Intro("X-LAB", "고객의 제안과 새로운 아이디어를 직접 써보고, 다음 변화를 함께 만들어요.")
-    Panel {
-        Text("개선이 어디까지 왔나요", style = MaterialTheme.typography.titleLarge)
-        Text("불편을 발견하고, X-LAB에서 시험하고, 효과가 확인된 개선만 OTA로 배포한 뒤 다시 확인해요.", color = Muted)
-        ExperimentStage("착석 연동 공조", "빈 좌석 공조 낭비를 X-LAB 체험과 같은 차종 비교로 시험 중", stage = 1)
-        ExperimentStage("도어 잠금 버튼", "OTA로 배포된 버튼을 실제 도어로 써 보고 평가 중", stage = 3)
-        ExperimentStage("다음 실험 4건", "지금 Pleos Connect에서 불편하다고 알려진 점", stage = 0)
-    }
     AdaptivePair(
         first = { modifier ->
             FeatureCard(
@@ -2188,7 +2181,27 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
         R.drawable.orbit_lab, "아이디어·피드백", "필요한 차량 기능을 제안하거나 체험 후 의견을 남겨요.",
         "의견 남기기", Modifier.fillMaxWidth().heightIn(min = 148.dp), onFeedback,
     )
-    Panel {
+    AdaptivePair(
+        first = { modifier -> ImprovementStages(modifier) },
+        second = { modifier -> NextExperiments(modifier) },
+        matchHeight = true,
+    )
+}
+
+@Composable
+private fun ImprovementStages(modifier: Modifier) {
+    Panel(modifier) {
+        Text("개선이 어디까지 왔나요", style = MaterialTheme.typography.titleLarge)
+        Text("불편을 발견하고, X-LAB에서 시험하고, 효과가 확인된 개선만 OTA로 배포한 뒤 다시 확인해요.", color = Muted)
+        ExperimentStage("착석 연동 공조", "빈 좌석 공조 낭비를 X-LAB 체험과 같은 차종 비교로 시험 중", stage = 1)
+        ExperimentStage("도어 잠금 버튼", "OTA로 배포된 버튼을 실제 도어로 써 보고 평가 중", stage = 3)
+        ExperimentStage("다음 실험 4건", "지금 Pleos Connect에서 불편하다고 알려진 점", stage = 0)
+    }
+}
+
+@Composable
+private fun NextExperiments(modifier: Modifier) {
+    Panel(modifier) {
         Text("다음 실험", style = MaterialTheme.typography.titleLarge)
         Text("지금 Pleos Connect에서 불편한 점을 개선안으로 먼저 검증해요.", color = Muted)
         // Each item is a known pain point of the current Pleos Connect, not a made-up idea.
