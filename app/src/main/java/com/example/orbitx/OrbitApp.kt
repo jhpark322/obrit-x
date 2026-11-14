@@ -1248,7 +1248,7 @@ private fun Trip(
                 if (data.availableDriveAward > 0) Chip("도착 +${formatPoints(data.availableDriveAward)}")
             }
             navigation?.route?.let { plan ->
-                RouteEnergyCheck(plan, rangeKm, onCharge = { navigation.openNavigation(DriveMode.Charge.searchRequest) })
+                RouteEnergyCheck(plan, navigation.arrivalPercent(plan), rangeKm, onCharge = { navigation.openNavigation(DriveMode.Charge.searchRequest) })
             }
             Text(
                 when {
@@ -1350,6 +1350,11 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                             else -> trip.energyKwh?.let { "${efficiency(it.toDouble())} kWh" } ?: "-"
                         },
                         "이번 전비" to (trip.efficiency?.let { "${efficiency(it)} km/kWh" } ?: "-"),
+                        "도착 배터리 예측 → 실제" to when {
+                            trip.charged -> "충전 포함"
+                            trip.predictedArrivalKwh == null || trip.actualArrivalKwh == null -> "-"
+                            else -> "${efficiency(trip.predictedArrivalKwh.toDouble())} → ${efficiency(trip.actualArrivalKwh.toDouble())} kWh"
+                        },
                     )
                     tiles.forEach { (label, value) ->
                         Column(
@@ -1372,6 +1377,13 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                             "이달 평균보다 ${efficiency(kotlin.math.abs(diff))}% ${if (diff >= 0) "좋음" else "낮음"}"
                         }
                         else -> null
+                    },
+                    trip.arrivalGapKwh?.let { gap ->
+                        when {
+                            gap >= .05f -> "예측보다 ${efficiency(gap.toDouble())} kWh 더 씀"
+                            gap <= -.05f -> "예측보다 ${efficiency((-gap).toDouble())} kWh 덜 씀"
+                            else -> "도착 배터리 예측과 같음"
+                        }
                     },
                     data.lastRecommendation?.takeIf { it.chosen == mission }?.let {
                         "추천 수락 ${data.recommendationAccepted}/${data.recommendationTotal}"
@@ -1429,13 +1441,13 @@ private fun ReportQuestion(title: String, options: List<String>, onPick: (String
 private val PlausibleEvEfficiency = 2.0..12.0
 
 @Composable
-private fun RouteEnergyCheck(plan: RoutePlan, rangeKm: Float?, onCharge: () -> Unit) {
+private fun RouteEnergyCheck(plan: RoutePlan, arrivalPercent: Int?, rangeKm: Float?, onCharge: () -> Unit) {
     val distance = plan.distanceKm
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             "남은 거리" to (distance?.let { "${efficiency(it.toDouble())} km" } ?: "-"),
             "남은 시간" to (plan.minutes?.let { "약 ${it}분" } ?: "-"),
-            "도착 시 배터리" to (plan.arrivalBatteryPercent?.let { "$it%" } ?: "-"),
+            "도착 시 배터리" to (arrivalPercent?.let { "약 $it%" } ?: plan.arrivalBatteryKwh?.let { "${efficiency(it.toDouble())} kWh" } ?: "-"),
         ).forEach { (label, value) ->
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Glass)
