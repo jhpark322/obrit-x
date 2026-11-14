@@ -132,7 +132,7 @@ private const val SeparateTemperatureFeedback = "동승석 온도를 따로 맞�
 
 private enum class Page(val label: String) {
     Home("홈"), Play("PLAY"), Trip("드라이브"), Arrival("도착 기록"),
-    Lab("X-LAB"), Trial("X-LAB"), Between("X-LAB"), Preference("X-LAB"), Insight("INSIGHT"), Points("MY ORBIT"),
+    Lab("X-LAB"), Insight("INSIGHT"), Points("MY ORBIT"),
     League("주행 효율 리그"), OtherLeagues("다른 리그 구경하기"), Ota("OTA 업데이트 평가"), LabFeedback("아이디어·피드백"), Experiments("실험 목록"),
     SyncMission("차량 기능 써보기"), ClimateLab("착석 연동 공조"),
 }
@@ -147,17 +147,11 @@ internal fun OrbitApp(
 ) {
     // Saveable so a configuration change (theme, multi-window resize) does not throw the user back to Home.
     var page by rememberSaveable { mutableStateOf(Page.Home) }
-    var trial by remember { mutableStateOf<ClimateTrial?>(null) }
-    val climateTask = ClimateTask.PassengerArrival
-    var results by remember { mutableStateOf(emptyMap<Variant, TrialResult>()) }
-    var first by remember { mutableStateOf(Variant.A) }
-    var interrupted by remember { mutableStateOf(false) }
     var pointsOrigin by rememberSaveable { mutableStateOf(Page.Home) }
     var otaOrigin by rememberSaveable { mutableStateOf(Page.Lab) }
     var climateOrigin by rememberSaveable { mutableStateOf(Page.Lab) }
     var openClimateComparison by rememberSaveable { mutableStateOf(false) }
     var showMissions by rememberSaveable { mutableStateOf(false) }
-    var trialExitTarget by remember { mutableStateOf<Page?>(null) }
     val parked = parking == ParkingStatus.Parked
     val locked = parking == ParkingStatus.Restricted || (vehicle != null && parking == ParkingStatus.Unavailable)
     val showroom = rememberShowroomDrawable()
@@ -167,16 +161,8 @@ internal fun OrbitApp(
         page = target
     }
 
-    fun leaveTrial(target: Page = Page.ClimateLab) {
-        trialExitTarget = null
-        trial = null
-        results = emptyMap()
-        openTab(target)
-    }
-
     fun back() {
         when (page) {
-            Page.Trial, Page.Between, Page.Preference -> trialExitTarget = Page.ClimateLab
             Page.Arrival -> page = Page.Trip
             Page.Insight -> page = Page.ClimateLab
             Page.ClimateLab -> page = climateOrigin
@@ -199,27 +185,12 @@ internal fun OrbitApp(
     LaunchedEffect(parked, page) {
         if (!parked) {
             when (page) {
-                Page.Trial, Page.Between, Page.Preference -> {
-                    interrupted = true
-                    leaveTrial()
-                }
                 Page.Arrival -> page = Page.Trip
                 else -> Unit
             }
         }
     }
 
-    val exitTarget = trialExitTarget
-    if (exitTarget != null && parked) {
-        AlertDialog(
-            onDismissRequest = { trialExitTarget = null },
-            containerColor = OrbitPaper,
-            title = { Text("실험을 종료할까요?") },
-            text = { Text("이번 실험을 나가면 진행 중인 측정이 사라져요.") },
-            confirmButton = { TextButton(onClick = { leaveTrial(exitTarget) }) { Text("실험 종료") } },
-            dismissButton = { TextButton(onClick = { trialExitTarget = null }) { Text("계속하기") } },
-        )
-    }
     val arrival = data.pendingMissionArrival
     if (parked && arrival != null) {
         AlertDialog(
@@ -322,19 +293,9 @@ internal fun OrbitApp(
                         vehicle = vehicle,
                         parked = parked,
                         startWithComparison = openClimateComparison,
-                        interrupted = interrupted,
                         hasResult = data.comparison != null,
                         availableAward = data.availableLabAward,
                         onPrevious = { page = Page.Insight },
-                        onStart = {
-                            if (parked) {
-                                interrupted = false
-                                first = data.firstVariant
-                                results = emptyMap()
-                                trial = ClimateTrial(first, climateTask)
-                                page = Page.Trial
-                            }
-                        },
                         onFinished = { result ->
                             if (parked) {
                                 data.finishExperiment(result)
@@ -342,38 +303,6 @@ internal fun OrbitApp(
                             }
                         },
                     )
-                    Page.Trial -> if (parked) {
-                        trial?.let { current ->
-                            Trial(current, results.size + 1, vehicle) { result ->
-                                results = results + (current.variant to result)
-                                page = if (results.size == 2) Page.Preference else Page.Between
-                            }
-                        }
-                    }
-                    Page.Between -> if (parked) {
-                        val next = if (first == Variant.A) Variant.B else Variant.A
-                        Intro("첫 화면 측정 완료", "같은 과제를 ${next.name}안에서 한 번 더 수행해요.")
-                        Panel {
-                            Eyebrow("다음 화면  ·  ${next.name}")
-                            Text(next.labelFor(climateTask), style = MaterialTheme.typography.headlineMedium)
-                            Action("${next.name}안 시작") {
-                                trial = ClimateTrial(next, climateTask)
-                                page = Page.Trial
-                            }
-                        }
-                    }
-                    Page.Preference -> if (parked) {
-                        Preference(climateTask) { choice, reason ->
-                            val baseline = results[Variant.A]
-                            val preset = results[Variant.B]
-                            if (parked && baseline != null && preset != null) {
-                                data.finishExperiment(Comparison(baseline, preset, choice, reason, climateTask))
-                                trial = null
-                                results = emptyMap()
-                                page = Page.Insight
-                            }
-                        }
-                    }
                     Page.Insight -> data.comparison?.let {
                         Insight(it, data.lastLabAward) {
                             pointsOrigin = Page.Insight
@@ -412,16 +341,11 @@ internal fun OrbitApp(
             Page.Home, Page.Play, Page.Lab, Page.Points -> page
             Page.Trip, Page.Arrival, Page.League, Page.OtherLeagues, Page.SyncMission -> Page.Play
             // X-LAB content always lights the X-LAB tab; back still returns to where the user came from.
-            Page.ClimateLab, Page.Trial, Page.Between, Page.Preference, Page.Insight -> Page.Lab
+            Page.ClimateLab, Page.Insight -> Page.Lab
             Page.LabFeedback, Page.Experiments -> Page.Lab
             Page.Ota -> otaOrigin
         }
-        OrbitTabs(selectedTab) { target ->
-            when (page) {
-                Page.Trial, Page.Between, Page.Preference -> trialExitTarget = target
-                else -> openTab(target)
-            }
-        }
+        OrbitTabs(selectedTab) { target -> openTab(target) }
     }
 }
 
@@ -2249,11 +2173,9 @@ private fun ClimateLab(
     vehicle: VehicleAccess?,
     parked: Boolean,
     startWithComparison: Boolean,
-    interrupted: Boolean,
     hasResult: Boolean,
     availableAward: Int,
     onPrevious: () -> Unit,
-    onStart: () -> Unit,
     onFinished: (Comparison) -> Unit,
 ) {
     var cabin by remember { mutableStateOf<CabinClimateSnapshot?>(null) }
@@ -2362,7 +2284,7 @@ private fun ClimateLab(
         }
     }
     if (comparison) {
-        SyncComparison(vehicle, parked, availableAward, hasResult, interrupted, onPrevious, onFinished)
+        SyncComparison(vehicle, parked, availableAward, hasResult, onPrevious, onFinished)
     }
 }
 
@@ -2407,7 +2329,6 @@ private fun SyncComparison(
     parked: Boolean,
     availableAward: Int,
     hasResult: Boolean,
-    interrupted: Boolean,
     onPrevious: () -> Unit,
     onFinished: (Comparison) -> Unit,
 ) {
@@ -2480,7 +2401,6 @@ private fun SyncComparison(
                     },
                     matchHeight = true,
                 )
-                if (interrupted) Text("주차 상태가 바뀌어 진행 중이던 실험이 종료됐어요.", color = OrbitBlue)
                 when {
                     !connected -> Text("차량에 연결되면 시작할 수 있어요.", color = Muted)
                     !parked -> Text("기어가 P이고 Pleos 주행 제한이 해제되면 시작할 수 있어요.", color = Muted)
@@ -2767,56 +2687,8 @@ private fun LabFeedback(data: OrbitData, parked: Boolean, onPoints: () -> Unit) 
     }
 }
 
-@Composable
-private fun LabPreview(variant: Variant, task: ClimateTask, modifier: Modifier) {
-    val steps = when (task) {
-        ClimateTask.PassengerArrival -> listOf("동승석 탑승", "앞좌석 송풍으로 변경", "하차 후 운전석 송풍으로 변경")
-        ClimateTask.SyncPreset -> listOf("공조 열기", "양쪽 온도 조절", "Auto와 SYNC 켜기")
-        ClimateTask.SeatHold -> listOf("공조 열기", "SYNC 끄기", "운전석 온도 조절")
-    }
-    Column(
-        modifier.heightIn(min = 222.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (variant == Variant.A) OrbitBackground else MaterialTheme.colorScheme.primaryContainer)
-            .border(1.dp, if (variant == Variant.A) Border else OrbitBlue.copy(alpha = .3f), RoundedCornerShape(16.dp))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Eyebrow(if (variant == Variant.A) "A  ·  기존 방식" else "B  ·  개선 제안")
-        Text(variant.labelFor(task), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        if (variant == Variant.A) {
-            steps.forEachIndexed { index, step ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(26.dp).clip(CircleShape).background(Glass), contentAlignment = Alignment.Center) {
-                        Text("${index + 1}", color = OrbitBlue, style = MaterialTheme.typography.labelSmall)
-                    }
-                    Text(step, color = Muted, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-        } else {
-            Text(task.presetLabel, color = OrbitInk, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                if (task == ClimateTask.PassengerArrival) "탑승하면 앞좌석으로, 하차하면 운전석으로 자동 전환해요."
-                else "한 번 눌러 원하는 설정을 적용해요.",
-                color = Muted, style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-    }
-}
-
 private fun degrees(value: Float?) =
     if (value == null) "조회 불가" else String.format(Locale.KOREA, "%.1f°C", value)
-
-private val ClimateTask.instructions get() = when (this) {
-    ClimateTask.PassengerArrival -> "동승자가 타고 내릴 때 송풍 범위가 어떻게 바뀌는지 확인해요."
-    ClimateTask.SyncPreset -> "양쪽을 23°C로 맞추고 Auto와 SYNC를 켜 보세요."
-    ClimateTask.SeatHold -> "동승석은 24°C로 두고, 운전석만 23°C로 맞춰 보세요."
-}
-
-private val ClimateTask.presetLabel get() = when (this) {
-    ClimateTask.PassengerArrival -> "운전석 ↔ 앞좌석"
-    ClimateTask.SyncPreset -> "23°C · Auto · SYNC"
-    ClimateTask.SeatHold -> "운전석만 23°C"
-}
 
 private fun Variant.labelFor(task: ClimateTask) = when {
     task == ClimateTask.SyncPreset -> if (this == Variant.A) "직접 바꾸기" else "앉으면 자동으로"
@@ -2851,205 +2723,7 @@ private fun AdaptivePair(
     }
 }
 
-@Composable
-private fun Trial(trial: ClimateTrial, round: Int, vehicle: VehicleAccess?, onResult: (TrialResult) -> Unit) {
-    Intro(trial.task.title, trial.task.instructions)
-    Panel {
-        Eyebrow("화면 ${trial.variant.name}  ·  ${trial.variant.labelFor(trial.task)}     ${round}/2")
-        if (trial.task == ClimateTask.PassengerArrival) {
-            PassengerClimateTrial(trial.variant, vehicle, onResult)
-        } else if (trial.variant == Variant.A) {
-            if (trial.panelOpen) {
-                BaselineClimatePanel(trial, onResult)
-            } else {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF171E2A)).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    val openLibrary = !trial.task.goalSync && !trial.libraryOpen
-                    Text(if (trial.libraryOpen) "Pleos 앱 라이브러리" else "Pleos 하단 바", color = Color(0xFFC9D5E8))
-                    Button(
-                        onClick = if (openLibrary) trial::openLibrary else trial::openPanel,
-                        modifier = Modifier.heightIn(min = 56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF35465F)),
-                    ) {
-                        val action = when {
-                            openLibrary -> "앱 라이브러리 열기"
-                            trial.libraryOpen -> "공조 탭 열기"
-                            else -> "운전석 ${degrees(trial.driverTemperature)} · 공조 열기"
-                        }
-                        Text(action, color = Color.White)
-                    }
-                }
-            }
-        } else {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF405D85)).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("원터치 컴포트", color = Color.White,
-                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    if (trial.task.goalSync) "앞좌석 양쪽 23°C · Auto · SYNC"
-                    else "운전석 23°C · 동승석 24°C 유지 · SYNC 끄기",
-                    color = Color(0xFFEDF5FF),
-                )
-                Button(
-                    onClick = { trial.applyPreset()?.let(onResult) },
-                    modifier = Modifier.heightIn(min = 58.dp),
-                    shape = RoundedCornerShape(13.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDDEBFF), contentColor = OrbitOnLight),
-                ) {
-                    Text(if (trial.task.goalSync) "컴포트 적용" else trial.task.presetLabel,
-                        fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PassengerClimateTrial(variant: Variant, vehicle: VehicleAccess?, onResult: (TrialResult) -> Unit) {
-    var occupied by remember { mutableStateOf<Boolean?>(null) }
-    var source by remember { mutableStateOf<ClimateSignal?>(null) }
-    var phase by remember { mutableStateOf(PassengerPhase.AwaitArrival) }
-    val automatic = variant == Variant.B
-    val frontAirflow = phase == PassengerPhase.AwaitDeparture || phase == PassengerPhase.SelectDriver
-
-    fun observeSeat(value: Boolean, signal: ClimateSignal) {
-        if (source != null && source != signal) return
-        when {
-            phase == PassengerPhase.AwaitArrival && value -> {
-                source = signal
-                phase = if (automatic) PassengerPhase.AwaitDeparture else PassengerPhase.SelectFront
-            }
-            phase == PassengerPhase.SelectFront && !value -> {
-                source = null
-                phase = PassengerPhase.AwaitArrival
-            }
-            phase == PassengerPhase.AwaitDeparture && !value -> {
-                phase = if (automatic) PassengerPhase.Complete else PassengerPhase.SelectDriver
-            }
-        }
-    }
-
-    LaunchedEffect(vehicle) {
-        if (vehicle == null) return@LaunchedEffect
-        var previous: Boolean? = null
-        var sawEmptySeat = false
-        while (phase != PassengerPhase.Complete && (source == null || source == ClimateSignal.Pleos)) {
-            val current = vehicle.readPassengerOccupied()
-            occupied = current
-            if (current != null && current == previous) {
-                if (!current) sawEmptySeat = true
-                if (sawEmptySeat) observeSeat(current, ClimateSignal.Pleos)
-            }
-            previous = current
-            delay(450)
-        }
-    }
-
-    Eyebrow("앱 내 송풍 체험")
-    Text(if (frontAirflow) "앞좌석 전체 송풍" else "운전석 전용 송풍",
-        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    when (phase) {
-        PassengerPhase.AwaitArrival -> {
-            Text(when (occupied) {
-                false -> "동승석이 비어 있어요. Pleos에서 착석 상태를 바꾸거나 아래 버튼을 눌러요."
-                true -> "동승석이 이미 차 있어요. Pleos에서 동승석을 비웠다가 다시 채워요."
-                null -> "화면 버튼으로 동승자 탑승을 체험할 수 있어요."
-            }, color = Muted)
-            Action("탑승 시연") { observeSeat(true, ClimateSignal.Simulated) }
-        }
-        PassengerPhase.SelectFront -> {
-            Text("동승자가 탔어요. 송풍 범위를 앞좌석 전체로 바꿔요.", color = Muted)
-            Action("앞좌석 전체로 변경") { phase = PassengerPhase.AwaitDeparture }
-        }
-        PassengerPhase.AwaitDeparture -> {
-            Text(if (automatic) "탑승을 감지해 앞좌석 전체로 전환했어요." else "앞좌석 전체로 바꿨어요.",
-                color = Muted)
-            if (source == ClimateSignal.Pleos) {
-                Text("Pleos에서 동승석을 비우면 하차를 확인해요.", color = OrbitBlue)
-                OutlinedButton(onClick = {
-                    source = ClimateSignal.Mixed
-                    observeSeat(false, ClimateSignal.Mixed)
-                }) { Text("하차 시연으로 계속") }
-            } else {
-                Action("하차 시연") { observeSeat(false, ClimateSignal.Simulated) }
-            }
-        }
-        PassengerPhase.SelectDriver -> {
-            Text("동승자가 내렸어요. 운전석 전용으로 바꿔요.", color = Muted)
-            Action("운전석 전용으로 변경") { phase = PassengerPhase.Complete }
-        }
-        PassengerPhase.Complete -> {
-            Text(if (automatic) "하차를 감지해 운전석 전용으로 돌아왔어요." else "운전석 전용으로 돌아왔어요.",
-                color = Muted)
-            Action("체험 완료") {
-                onResult(TrialResult(0, if (automatic) 0 else 2, 0, source))
-            }
-        }
-    }
-}
-
 private enum class PassengerPhase { AwaitArrival, SelectFront, AwaitDeparture, SelectDriver, Complete }
-
-@Composable
-private fun BaselineClimatePanel(trial: ClimateTrial, onResult: (TrialResult) -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
-    Column(
-        Modifier.fillMaxWidth().clip(shape).background(OrbitBackground).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text("앞좌석 공조", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (trial.task.goalSync) ClimateToggle("Auto", trial.auto) { trial.toggleAuto()?.let(onResult) }
-            ClimateToggle("SYNC", trial.sync) { trial.toggleSync()?.let(onResult) }
-        }
-        AdaptivePair(
-            first = { modifier ->
-                Column(
-                    modifier.clip(RoundedCornerShape(12.dp)).background(OrbitPaper).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("운전석", color = Muted)
-                    Text(degrees(trial.driverTemperature), fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { trial.adjustTemperature(-0.5f)?.let(onResult) },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text("− 0.5°C") }
-                        OutlinedButton(
-                            onClick = { trial.adjustTemperature(0.5f)?.let(onResult) },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text("+ 0.5°C") }
-                    }
-                }
-            },
-            second = { modifier ->
-                Column(
-                    modifier.clip(RoundedCornerShape(12.dp)).background(OrbitPaper).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("동승석", color = Muted)
-                    Text(degrees(trial.passengerTemperature), fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                    Text(if (trial.sync) "운전석과 동기화 중" else "운전석과 독립 조절 중", color = Muted)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { trial.adjustTemperature(-0.5f, passenger = true)?.let(onResult) }) {
-                            Text("− 0.5°C")
-                        }
-                        OutlinedButton(onClick = { trial.adjustTemperature(0.5f, passenger = true)?.let(onResult) }) {
-                            Text("+ 0.5°C")
-                        }
-                    }
-                }
-            },
-        )
-    }
-}
 
 @Composable
 private fun ClimateToggle(label: String, enabled: Boolean, onClick: () -> Unit) {
@@ -3062,26 +2736,6 @@ private fun ClimateToggle(label: String, enabled: Boolean, onClick: () -> Unit) 
         color = if (enabled) MaterialTheme.colorScheme.onPrimary else OrbitInk,
         fontWeight = FontWeight.SemiBold,
     )
-}
-
-@Composable
-private fun Preference(task: ClimateTask, onFinish: (String, String) -> Unit) {
-    var choice by remember { mutableStateOf<String?>(null) }
-    Intro("어느 화면이 더 편했나요?", "선호도 응답은 선택 사항이에요. 참여 보상은 선택한 화면과 관계없이 같아요.")
-    Panel {
-        if (choice == null) {
-            ChoiceButtons(listOf("A · ${Variant.A.labelFor(task)}", "B · ${Variant.B.labelFor(task)}", "차이 없음")) { choice = it }
-        } else {
-            Eyebrow("선택  ·  ${choice.orEmpty()}")
-            val reasons = if (task == ClimateTask.PassengerArrival) {
-                listOf("매번 바꾸는 수고가 줄어요", "바뀌는 시점을 직접 정하고 싶어요", SeparateTemperatureFeedback)
-            } else listOf("원하는 기능을 찾기 쉬웠어요", "조작 단계가 적었어요", SeparateTemperatureFeedback)
-            ChoiceButtons(reasons) {
-                onFinish(choice.orEmpty(), it)
-            }
-        }
-        OutlinedButton(onClick = { onFinish(choice ?: "응답 건너뜀", "") }) { Text("건너뛰고 결과 보기") }
-    }
 }
 
 @Composable
