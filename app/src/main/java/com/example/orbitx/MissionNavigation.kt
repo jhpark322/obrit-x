@@ -441,7 +441,9 @@ internal class MissionNavigation(
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "미션 완료", NotificationManager.IMPORTANCE_LOW))
+        // Arrival is a navigation event, so the notice uses the navigation category and pops over the map
+        // once; tapping it opens ORBIT X on the drive report. The app never opens itself over navigation.
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, "도착 기록", NotificationManager.IMPORTANCE_HIGH))
         val open = Intent(context, MainActivity::class.java).addFlags(
             Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
         )
@@ -449,15 +451,17 @@ internal class MissionNavigation(
         val summary = if (result.award > 0) "${result.title} · +${formatPoints(result.award)}" else result.title
         manager.notify(COMPLETION_NOTIFICATION_ID, Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.orbit_launcher_mark)
-            .setContentTitle(if (result.simulated) "ORBIT X 모의 안내 도착" else "ORBIT X 도착 인증 완료")
-            .setContentText(summary)
+            .setCategory(Notification.CATEGORY_NAVIGATION)
+            .setContentTitle(if (result.simulated) "모의 안내 도착 · $summary" else "도착 기록 완료 · $summary")
+            .setContentText("주차 후 눌러서 리포트를 보고, 질문 하나에 답하면 +${formatPoints(PointsPerAnswer)}")
             .setContentIntent(pending)
             .setAutoCancel(true)
             .build())
     }
 
     companion object {
-        private const val CHANNEL = "mission-completion"
+        private const val CHANNEL = "arrival-report"
+        private const val PointsPerAnswer = 1_000
         private const val COMPLETION_NOTIFICATION_ID = 1001
         private const val SUGGESTION_CHANNEL = "route-suggestion"
         private const val SUGGESTION_NOTIFICATION_ID = 1002

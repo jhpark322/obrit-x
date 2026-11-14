@@ -430,6 +430,8 @@ internal class OrbitData(private val context: Context) {
 
         balance = 0
         lastTrip = null
+        experimentAnswerCount = 0
+        experimentAnswerPoints = 0
         arrivalChecks = 0
         arrivalGapAverageKwh = null
         driveJournal = emptyList()
@@ -985,14 +987,32 @@ internal class OrbitData(private val context: Context) {
         get() = tripExperimentId != ArrivalBatteryExperiment ||
             (lastTrip?.arrivalGapKwh?.let { kotlin.math.abs(it) >= ArrivalGapNoticeKwh } == true)
 
+    /** Points for answering this drive's X-LAB question (once per drive, within the monthly limit). */
+    val availableExperimentAward: Int
+        get() = if (tripExperimentId != null && tripExperimentAnswer == null) capMonthly(PointUnit, LocalDate.now()) else 0
+
+    var experimentAnswerCount by mutableStateOf(prefs.getInt("experimentAnswerCount", 0))
+        private set
+    var experimentAnswerPoints by mutableStateOf(prefs.getInt("experimentAnswerPoints", 0))
+        private set
+
     fun saveExperimentAnswer(answer: String) {
         val id = tripExperimentId ?: return
         if (tripExperimentAnswer != null) return
+        val today = LocalDate.now()
+        val award = availableExperimentAward
         val counts = experimentResponses + (id to (experimentResponses[id] ?: 0) + 1)
         prefs.edit().putString("tripExperimentAnswer", answer)
-            .putString("experimentResponses", JSONObject(counts).toString()).apply()
+            .putString("experimentResponses", JSONObject(counts).toString())
+            .putInt("experimentAnswerCount", experimentAnswerCount + 1)
+            .putInt("experimentAnswerPoints", experimentAnswerPoints + award)
+            .apply { storeAward(this, award, today) }
+            .apply()
         tripExperimentAnswer = answer
         experimentResponses = counts
+        experimentAnswerCount += 1
+        experimentAnswerPoints += award
+        balance += award
         ExperimentPrompt.cancel(context)
     }
 

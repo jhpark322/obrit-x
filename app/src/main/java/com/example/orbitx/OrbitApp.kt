@@ -1428,7 +1428,9 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
             }
             feedback == null -> ReportQuestion("추천이 이번 이동에 맞았나요?", DriveFeedbackOptions) { data.saveDriveFeedback(it) }
             experiment != null && data.tripExperimentAnswer == null && data.tripExperimentAskable -> {
-                Eyebrow("X-LAB 실험 %02d  ·  %s".format(experiment.number, experiment.title))
+                val reward = data.availableExperimentAward
+                Eyebrow("X-LAB 실험 %02d  ·  %s".format(experiment.number, experiment.title) +
+                    if (reward > 0) "  ·  답하면 +${formatPoints(reward)}" else "")
                 ReportQuestion(experiment.driveQuestion, experiment.answers) { data.saveExperimentAnswer(it) }
             }
             editingPurpose -> ReportQuestion("이번 드라이브 목적", DriveMode.entries.map { it.title }) {
@@ -2897,7 +2899,8 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
     Panel {
         Text("최근 참여 내역", style = MaterialTheme.typography.titleLarge)
         if (data.lastMission == null && data.comparison == null && data.otaReview == null &&
-            data.labSubmissions.isEmpty() && data.syncMissionFeedback == null && data.cabinTrialFeedback == null
+            data.labSubmissions.isEmpty() && data.syncMissionFeedback == null && data.cabinTrialFeedback == null &&
+            data.experimentAnswerCount == 0
         ) {
             Text("아직 완료한 미션이나 체험이 없어요.", color = Muted)
         }
@@ -2918,6 +2921,10 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
         }
         data.syncMissionFeedback?.let {
             PointActivity("미션 · 앞좌석 온도 동기화 써보기", data.syncMissionAward, listOf(it))
+        }
+        if (data.experimentAnswerCount > 0) {
+            PointActivity("X-LAB · 드라이브 실험 응답 ${data.experimentAnswerCount}건", data.experimentAnswerPoints,
+                listOfNotNull(data.tripExperimentAnswer))
         }
     }
     Panel {
