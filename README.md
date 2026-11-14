@@ -10,12 +10,14 @@
 
 | 한눈에 보기 | |
 | --- | --- |
-| 앱 | ORBIT X · Android Automotive (Kotlin, Jetpack Compose) |
-| 개발·테스트 환경 | **Pleos Connect v2.1.0 에뮬레이터** · Android 14 (API 34) · x86_64 · **2560 × 1440 px, 160 dpi** (에뮬레이터 실측) |
+| 앱 이름 | **ORBIT X** · Android Automotive (Kotlin, Jetpack Compose) |
+| 한 줄 소개 | 어떤 차량 기능이든 실제 운전자와 함께 검증해, 그 반응과 성과를 현대자동차그룹의 개선·OTA 판단 근거로 넘기는 Pleos Connect 고객 검증 플랫폼 |
+| 실행 방법 | [실행 방법](#실행-방법) 참고 (빌드 · 설치 · 실행 명령) |
+| 테스트 환경 및 필요한 설정 | [테스트 환경 및 필요한 설정](#테스트-환경-및-필요한-설정) 참고 (권한, Virtual Console, 네트워크) |
+| 에뮬레이터 버전과 화면 규격 | **Pleos Connect v2.1.0 에뮬레이터** · Android 14 (API 34) · x86_64 · **2560 × 1440 px, 160 dpi** (에뮬레이터 실측) |
 | 사용 SDK | Pleos Vehicle SDK 2.3.2 · Pleos NaviHelper 3.0.5 · Android Automotive OS API |
 | 화면 테마 | 시스템 설정을 따라 다크·라이트 모드 모두 지원 |
-| 실행 방법 | [실행 방법](#실행-방법) 참고 |
-| APK | 제출용 release APK: [`apk/박준하_ORBITX_release.apk`](apk/박준하_ORBITX_release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/박준하_ORBITX_release.apk`로 설치합니다. |
+| APK 파일 위치 | 제출용 release APK: [`apk/박준하_ORBITX_release.apk`](apk/박준하_ORBITX_release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/박준하_ORBITX_release.apk`로 설치합니다. |
 
 ## 왜 플랫폼인가
 
@@ -234,7 +236,18 @@ adb install -r --user 10 app/build/outputs/apk/debug/app-debug.apk
 adb shell am start --user 10 -n com.example.orbitx/.MainActivity
 ```
 
-첫 실행 때 **알림**과 **차량 속도** 권한을 허용합니다(차량 속도는 급가속·급제동 측정에 씁니다). 사용자 번호는 `adb shell am get-current-user`로 확인합니다. Windows 기본 SDK 경로는 `%LOCALAPPDATA%\Android\Sdk`입니다.
+제출용 release APK로 바로 설치하려면 `adb install -r --user 10 apk/박준하_ORBITX_release.apk`를 씁니다.
+
+### 테스트 환경 및 필요한 설정
+
+| 항목 | 내용 |
+| --- | --- |
+| 에뮬레이터 | Pleos Connect v2.1.0 · Android 14 (API 34) · x86_64 · 2560 × 1440 px, 160 dpi |
+| 앱 권한 | 첫 실행 때 **알림**과 **차량 속도** 권한을 허용합니다(차량 속도는 급가속·급제동 측정에 씁니다). |
+| 사용자 번호 | Pleos 에뮬레이터의 앱 사용자는 10번입니다. `adb shell am get-current-user`로 확인하고 설치·실행에 `--user 10`을 붙입니다. |
+| 차량 값 입력 | 착석·기어·배터리·속도는 Pleos Virtual Console로 바꿉니다. 연결 방법은 [시연 가이드](#시연-가이드)에 있습니다. |
+| 네트워크 | 순정 내비 경로 검색에 인터넷이 필요합니다. 에뮬레이터의 Wi-Fi가 끊기면 설정 → 네트워크에서 **AndroidWifi**에 다시 연결합니다. |
+| SDK 경로 | Windows 기본 SDK 경로는 `%LOCALAPPDATA%\Android\Sdk`입니다. |
 
 | 빌드 환경 | |
 | --- | --- |
