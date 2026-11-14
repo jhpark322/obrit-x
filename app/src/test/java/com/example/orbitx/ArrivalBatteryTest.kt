@@ -20,3 +20,18 @@ class ArrivalBatteryTest {
     @Test
     fun chargingOnTheWayIsNotCompared() = assertNull(trip(54.0f, 70f, charged = true).arrivalGapKwh)
 }
+
+class DriveBehaviorTest {
+    @Test
+    fun roundTripsThroughPrefsText() {
+        val behavior = DriveBehavior(hardAccel = 4, hardBrake = 2, climateMinutes = 32, avgSpeedKph = 52)
+        assertEquals(behavior, DriveBehavior.decode(behavior.encode()))
+    }
+
+    @Test
+    fun missingAverageSpeedStaysMissing() =
+        assertNull(DriveBehavior.decode(DriveBehavior(0, 0, 5, null).encode())!!.avgSpeedKph)
+
+    @Test
+    fun brokenTextIsIgnored() = assertNull(DriveBehavior.decode("1,2"))
+}

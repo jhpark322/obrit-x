@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 internal object OrbitRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var sampling: Job? = null
+    private var motion: Job? = null
 
     lateinit var data: OrbitData
         private set
@@ -65,9 +66,25 @@ internal object OrbitRuntime {
                 navigation?.vehicleBatteryPercent = source.readBatteryPercent()
                 // Pleos navigation's departure-time prediction, checked against the real arrival later.
                 data.notePredictedArrival(navigation?.route?.arrivalBatteryKwh)
+                // While driving, keep the reasons a drive may use more battery than navigation predicted.
+                if (source.parking != ParkingStatus.Parked && data.activeMission != null) {
+                    data.recordClimate(source.readClimateOn(), (SampleIntervalMs / 1_000).toInt())
+                }
+                // The parked-only experiment question must not stay over navigation once the car moves.
+                if (source.parking == ParkingStatus.Restricted) ExperimentPrompt.cancel(appContext)
                 // After arrival, once parked, ask the drive's experiment question over navigation.
                 if (!uiVisible && source.parking == ParkingStatus.Parked) ExperimentPrompt.maybePost(appContext, data)
                 delay(SampleIntervalMs)
+            }
+        }
+        // Hard acceleration and braking need speed about every half second, faster than the sampling loop.
+        motion = scope.launch {
+            while (isActive) {
+                if (source.parking != ParkingStatus.Parked && data.activeMission != null) {
+                    data.recordMotion(source.readSpeedKph(), source.readBrakePressed())
+                    data.takeDrivingTip()?.let { (accel, brake) -> DrivingTip.post(appContext, accel, brake) }
+                }
+                delay(MotionIntervalMs)
             }
         }
         navigation?.restoreMissionLink()
@@ -76,6 +93,8 @@ internal object OrbitRuntime {
     fun stopSampling() {
         sampling?.cancel()
         sampling = null
+        motion?.cancel()
+        motion = null
         data.recordLeagueSample(null)
         vehicle?.stop()
         navigation?.release()
@@ -88,6 +107,7 @@ internal object OrbitRuntime {
     }
 
     private const val SampleIntervalMs = 3_000L
+    private const val MotionIntervalMs = 500L
     /** Route state is re-read every 4 samples (12 s); tick 0 connects to navigation right away. */
     private const val RouteRefreshTicks = 4
 }

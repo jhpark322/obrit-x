@@ -35,6 +35,29 @@ internal data class RecommendationRecord(val recommended: String, val chosen: St
 /** Below this the arrival battery counts as matching the prediction. */
 internal const val ArrivalGapNoticeKwh = .05f
 
+/**
+ * How the drive went, measured while driving: the likely reasons a drive used more battery than predicted.
+ * Accelerations come from the speed change between samples about half a second apart.
+ */
+internal data class DriveBehavior(val hardAccel: Int, val hardBrake: Int, val climateMinutes: Int, val avgSpeedKph: Int?) {
+    fun encode() = "$hardAccel,$hardBrake,$climateMinutes,${avgSpeedKph ?: -1}"
+
+    companion object {
+        fun decode(text: String?): DriveBehavior? {
+            val parts = text?.split(",")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 4 } ?: return null
+            return DriveBehavior(parts[0], parts[1], parts[2], parts[3].takeIf { it >= 0 })
+        }
+    }
+}
+
+/** m/s² above which a speed-up counts as hard acceleration, and below which a slow-down counts as hard braking. */
+internal const val HardAccelMps2 = 3.0f
+internal const val HardBrakeMps2 = -3.5f
+
+/** The in-drive tip shows after every 3 hard events, at most twice a drive. */
+internal const val DrivingTipEvery = 3
+internal const val DrivingTipMax = 2
+
 internal data class TripReport(
     val mode: String,
     val distanceKm: Float?,
@@ -45,6 +68,7 @@ internal data class TripReport(
     val predictedArrivalKwh: Float? = null,
     /** Battery energy (kWh) the car reported on arrival. */
     val actualArrivalKwh: Float? = null,
+    val behavior: DriveBehavior? = null,
 ) {
     /** kWh used beyond the prediction (negative: arrived with more than predicted). */
     val arrivalGapKwh: Float?
@@ -644,6 +668,7 @@ internal class OrbitData(private val context: Context) {
         }
         if (starting) {
             prefs.edit().remove("tripPredictKwh").apply()
+            clearDriveBehavior()
             val sample = freshVehicleSample()
             if (sample != null) storeTripStart(sample)
             else prefs.edit().putBoolean("tripStartPending", true).remove("tripStartKm").remove("tripStartKwh").apply()
@@ -666,6 +691,79 @@ internal class OrbitData(private val context: Context) {
         prefs.getInt("arrivalChecks", 0).takeIf { it > 0 }?.let { prefs.getFloat("arrivalGapSum", 0f) / it },
     )
         private set
+
+    // Driving behaviour of the current drive (kept in prefs so a restart mid-drive does not lose it).
+    private var motionAt = 0L
+    private var motionSpeed = 0f
+    private var lastAccelEventAt = 0L
+    private var lastBrakeEventAt = 0L
+
+    /** Called about every half second while driving with a drive running. */
+    fun recordMotion(speedKph: Float?, brakePressed: Boolean?) {
+        if (activeMission == null || speedKph == null) return
+        val now = SystemClock.elapsedRealtime()
+        val edit = prefs.edit()
+        if (motionAt != 0L && now - motionAt in 200L..2_000L) {
+            val accel = (speedKph - motionSpeed) / 3.6f / ((now - motionAt) / 1_000f)
+            if (accel >= HardAccelMps2 && now - lastAccelEventAt > 3_000L) {
+                lastAccelEventAt = now
+                edit.putInt("tripHardAccel", prefs.getInt("tripHardAccel", 0) + 1)
+            }
+            // A sharp slow-down with the brake pressed (or brake state unknown) is a hard brake.
+            if (accel <= HardBrakeMps2 && brakePressed != false && now - lastBrakeEventAt > 3_000L) {
+                lastBrakeEventAt = now
+                edit.putInt("tripHardBrake", prefs.getInt("tripHardBrake", 0) + 1)
+            }
+        }
+        if (speedKph > 3f) {
+            edit.putFloat("tripSpeedSum", prefs.getFloat("tripSpeedSum", 0f) + speedKph)
+                .putInt("tripSpeedCount", prefs.getInt("tripSpeedCount", 0) + 1)
+        }
+        edit.putBoolean("tripMotionSeen", true).apply()
+        motionAt = now
+        motionSpeed = speedKph
+    }
+
+    /** Called from the regular sampling loop while driving; adds the time the climate was on. */
+    fun recordClimate(on: Boolean?, seconds: Int) {
+        if (activeMission == null || on == null) return
+        val edit = prefs.edit().putBoolean("tripClimateSeen", true)
+        if (on) edit.putInt("tripClimateSeconds", prefs.getInt("tripClimateSeconds", 0) + seconds)
+        edit.apply()
+    }
+
+    /**
+     * Returns (hard acceleration, hard braking) once every [DrivingTipEvery] events on this drive, at most
+     * [DrivingTipMax] times, so the in-drive tip stays rare; null otherwise.
+     */
+    fun takeDrivingTip(): Pair<Int, Int>? {
+        if (activeMission == null) return null
+        val accel = prefs.getInt("tripHardAccel", 0)
+        val brake = prefs.getInt("tripHardBrake", 0)
+        val shown = prefs.getInt("tripTipsShown", 0)
+        if (shown >= DrivingTipMax || accel + brake < DrivingTipEvery * (shown + 1)) return null
+        prefs.edit().putInt("tripTipsShown", shown + 1).apply()
+        return accel to brake
+    }
+
+    private fun clearDriveBehavior() {
+        prefs.edit().remove("tripHardAccel").remove("tripHardBrake").remove("tripSpeedSum").remove("tripSpeedCount")
+            .remove("tripMotionSeen").remove("tripClimateSeconds").remove("tripClimateSeen").remove("tripTipsShown").apply()
+        motionAt = 0L
+    }
+
+    private fun currentDriveBehavior(): DriveBehavior? {
+        val motion = prefs.getBoolean("tripMotionSeen", false)
+        val climate = prefs.getBoolean("tripClimateSeen", false)
+        if (!motion && !climate) return null
+        val count = prefs.getInt("tripSpeedCount", 0)
+        return DriveBehavior(
+            hardAccel = if (motion) prefs.getInt("tripHardAccel", 0) else -1,
+            hardBrake = if (motion) prefs.getInt("tripHardBrake", 0) else -1,
+            climateMinutes = if (climate) (prefs.getInt("tripClimateSeconds", 0) + 30) / 60 else -1,
+            avgSpeedKph = if (count > 0) (prefs.getFloat("tripSpeedSum", 0f) / count).toInt() else null,
+        )
+    }
 
     fun notePredictedArrival(kwh: Float?) {
         if (kwh == null || !kwh.isFinite() || kwh <= 0f || activeMission == null || prefs.contains("tripPredictKwh")) return
@@ -692,16 +790,19 @@ internal class OrbitData(private val context: Context) {
         val energy = if (startKwh != null && end.batteryKwh != null && !charged) (startKwh - end.batteryKwh).coerceAtLeast(0f) else null
         val predicted = prefs.getFloat("tripPredictKwh", -1f).takeIf { it > 0f }
         val actual = end.batteryKwh
+        val behavior = currentDriveBehavior()
         val done = report.copy(distanceKm = distance, energyKwh = energy, charged = charged, pending = false,
-            predictedArrivalKwh = predicted, actualArrivalKwh = actual)
+            predictedArrivalKwh = predicted, actualArrivalKwh = actual, behavior = behavior)
         driveJournal.firstOrNull()?.let { latest ->
             updateLatestJournal(latest.copy(distanceKm = distance, efficiency = done.efficiency))
         }
         prefs.edit().putFloat("tripReportKm", distance ?: -1f).putFloat("tripReportKwh", energy ?: -1f)
             .putBoolean("tripReportCharged", charged).putBoolean("tripReportPending", false)
             .putFloat("tripReportPredict", predicted ?: -1f).putFloat("tripReportActual", actual ?: -1f)
+            .putString("tripReportBehavior", behavior?.encode())
             .remove("tripStartKm").remove("tripStartKwh").remove("tripStartPending").remove("tripPredictKwh").apply()
         lastTrip = done
+        clearDriveBehavior()
         done.arrivalGapKwh?.let { gap ->
             val count = arrivalChecks + 1
             val sum = prefs.getFloat("arrivalGapSum", 0f) + gap
@@ -721,6 +822,7 @@ internal class OrbitData(private val context: Context) {
             prefs.getBoolean("tripReportPending", false),
             prefs.getFloat("tripReportPredict", -1f).takeIf { it > 0f },
             prefs.getFloat("tripReportActual", -1f).takeIf { it >= 0f },
+            DriveBehavior.decode(prefs.getString("tripReportBehavior", null)),
         )
     }
 
@@ -966,7 +1068,7 @@ internal class OrbitData(private val context: Context) {
         ))
         prefs.edit().putString("tripReportMode", intent).putBoolean("tripReportPending", true)
             .remove("tripReportKm").remove("tripReportKwh").remove("tripReportCharged")
-            .remove("tripReportPredict").remove("tripReportActual").apply()
+            .remove("tripReportPredict").remove("tripReportActual").remove("tripReportBehavior").apply()
         lastTrip = TripReport(intent, null, null, charged = false, pending = true)
         nextTripExperiment()
         freshVehicleSample()?.let(::finishTripReport)

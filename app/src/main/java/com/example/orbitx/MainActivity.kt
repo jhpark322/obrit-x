@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
 import com.example.orbitx.ui.theme.OrbitXTheme
 
 class MainActivity : ComponentActivity() {
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    private val startupPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,10 +21,13 @@ class MainActivity : ComponentActivity() {
         val vehicle = OrbitRuntime.vehicle
         val missionNavigation = OrbitRuntime.navigation
         // Ask on first launch: charging suggestions and arrival notices appear while navigation is in front.
-        if (savedInstanceState == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        // Vehicle speed (hard acceleration/braking in the drive report) is a runtime permission in AAOS.
+        if (savedInstanceState == null) {
+            val missing = listOfNotNull(
+                Manifest.permission.POST_NOTIFICATIONS.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU },
+                SpeedPermission,
+            ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+            if (missing.isNotEmpty()) startupPermissions.launch(missing.toTypedArray())
         }
         setContent {
             OrbitXTheme {
