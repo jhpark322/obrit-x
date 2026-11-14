@@ -47,12 +47,12 @@ internal val LabExperiments = listOf(
         extraPlay = "실제 도어로 OTA 체험 평가", extraReady = true,
     ),
     LabExperiment(
-        "arrival-battery", 3, "도착 배터리 예측 확인",
+        ArrivalBatteryExperiment, 3, "도착 배터리 예측 확인",
         "순정 내비가 예측한 도착 배터리가 실제와 얼마나 맞는지, 왜 어긋나는지 몰라요.",
         stage = 1,
         leagueMetric = "차종별 예측·실제 도착 배터리 차이",
-        driveQuestion = "도착 배터리가 예측과 달랐다면 왜일까요?",
-        answers = listOf("공조를 많이 썼어요", "길이 막히거나 바뀌었어요", "잘 맞았어요"),
+        driveQuestion = "도착 배터리가 예측과 다른 이유가 있었나요?",
+        answers = listOf("공조를 많이 썼어요", "길이 막히거나 바뀌었어요", "특별한 이유 없어요"),
         extraPlay = "드라이브 리포트의 예측 vs 실제 도착 배터리", extraReady = true,
     ),
     LabExperiment(
@@ -83,5 +83,8 @@ internal val LabExperiments = listOf(
         extraPlay = "못 알아들은 표현 모으기", extraReady = false,
     ),
 )
+
+/** Experiment 03: navigation's arrival-battery prediction checked against the real arrival. */
+internal const val ArrivalBatteryExperiment = "arrival-battery"
 
 internal fun labExperiment(id: String?): LabExperiment? = LabExperiments.firstOrNull { it.id == id }

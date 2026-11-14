@@ -24,7 +24,7 @@ internal object ExperimentPrompt {
 
     fun maybePost(context: Context, data: OrbitData) {
         val experiment = labExperiment(data.tripExperimentId) ?: return
-        if (data.tripExperimentAnswer != null || data.tripExperimentPrompted) return
+        if (data.tripExperimentAnswer != null || data.tripExperimentPrompted || !data.tripExperimentAskable) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return

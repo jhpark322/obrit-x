@@ -1406,7 +1406,7 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                 data.saveDriveMood(it)
             }
             feedback == null -> ReportQuestion("추천이 이번 이동에 맞았나요?", DriveFeedbackOptions) { data.saveDriveFeedback(it) }
-            experiment != null && data.tripExperimentAnswer == null -> {
+            experiment != null && data.tripExperimentAnswer == null && data.tripExperimentAskable -> {
                 Eyebrow("X-LAB 실험 %02d  ·  %s".format(experiment.number, experiment.title))
                 ReportQuestion(experiment.driveQuestion, experiment.answers) { data.saveExperimentAnswer(it) }
             }
