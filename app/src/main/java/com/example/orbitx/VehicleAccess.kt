@@ -372,6 +372,7 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
                         failed,
                     )
                 }
+                Log.i(TAG, "Cabin fan speed areas: ${fanAreas?.map { (area, bounds) -> area.values.toList() to (bounds.minValue to bounds.maxValue) }}")
             }
             if (temperatureAreas == null) {
                 temperatureAreas = readVehicleValue<Map<SeatArea, AreaBounds<Float>>> { done, failed ->
