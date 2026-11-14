@@ -54,8 +54,12 @@ internal object OrbitRuntime {
         if (isSampling) return
         source.start()
         sampling = scope.launch {
+            var tick = 0
             while (isActive) {
                 data.recordLeagueSample(source.readLeagueSample())
+                // Pleos navigation can report "route ended" right after "route started" (re-route), and it
+                // only pushes route state on change, so re-read it now and then instead of trusting events.
+                if (tick++ % RouteRefreshTicks == 0) navigation?.refreshRoute()
                 navigation?.vehicleBatteryPercent = source.readBatteryPercent()
                 // After arrival, once parked, ask the drive's experiment question over navigation.
                 if (!uiVisible && source.parking == ParkingStatus.Parked) ExperimentPrompt.maybePost(appContext, data)
@@ -63,8 +67,6 @@ internal object OrbitRuntime {
             }
         }
         navigation?.restoreMissionLink()
-        // Stay connected to Pleos navigation so route start and arrival are picked up without extra taps.
-        navigation?.refreshRoute()
     }
 
     fun stopSampling() {
@@ -82,4 +84,6 @@ internal object OrbitRuntime {
     }
 
     private const val SampleIntervalMs = 3_000L
+    /** Route state is re-read every 4 samples (12 s); tick 0 connects to navigation right away. */
+    private const val RouteRefreshTicks = 4
 }
