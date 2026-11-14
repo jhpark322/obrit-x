@@ -166,90 +166,6 @@ internal data class Comparison(
     fun result(variant: Variant) = if (variant == Variant.A) baseline else preset
 }
 
-internal class ClimateTrial(val variant: Variant, val task: ClimateTask) {
-    private val startedAt = SystemClock.elapsedRealtime()
-    private var touches = 0
-    private var errors = 0
-    private var completed = false
-
-    var libraryOpen by mutableStateOf(false)
-        private set
-    var panelOpen by mutableStateOf(false)
-        private set
-    var driverTemperature by mutableStateOf(task.startingTemperature)
-        private set
-    var passengerTemperature by mutableStateOf(task.startingTemperature)
-        private set
-    var auto by mutableStateOf(false)
-        private set
-    var sync by mutableStateOf(!task.goalSync)
-        private set
-
-    fun openLibrary() {
-        if (completed || variant != Variant.A || task.goalSync || libraryOpen) return
-        libraryOpen = true
-        touches++
-    }
-
-    fun openPanel() {
-        if (completed || variant != Variant.A || panelOpen) return
-        if (!task.goalSync && !libraryOpen) return
-        panelOpen = true
-        touches++
-    }
-
-    fun adjustTemperature(amount: Float, passenger: Boolean = false): TrialResult? {
-        if (!canEditPanel()) return null
-        val previous = if (passenger) passengerTemperature else driverTemperature
-        val goal = if (passenger) task.passengerGoal else 23f
-        val next = (previous + amount).coerceIn(16f, 30f)
-        val changesPassengerUnintentionally = !passenger && sync && !task.goalSync && next != task.passengerGoal
-        if (kotlin.math.abs(next - goal) >= kotlin.math.abs(previous - goal) || changesPassengerUnintentionally) errors++
-        if (passenger) {
-            passengerTemperature = next
-            sync = false
-        } else {
-            driverTemperature = next
-            if (sync) passengerTemperature = next
-        }
-        return record()
-    }
-
-    fun toggleAuto(): TrialResult? {
-        if (!canEditPanel()) return null
-        auto = !auto
-        if (!auto) errors++
-        return record()
-    }
-
-    fun toggleSync(): TrialResult? {
-        if (!canEditPanel()) return null
-        sync = !sync
-        if (sync) passengerTemperature = driverTemperature
-        if (sync != task.goalSync) errors++
-        return record()
-    }
-
-    fun applyPreset(): TrialResult? {
-        if (completed || variant != Variant.B) return null
-        driverTemperature = 23f
-        passengerTemperature = task.passengerGoal
-        if (task.goalSync) auto = true
-        sync = task.goalSync
-        return record()
-    }
-
-    private fun canEditPanel() = !completed && variant == Variant.A && panelOpen
-
-    private fun record(): TrialResult? {
-        touches++
-        if (driverTemperature != 23f || passengerTemperature != task.passengerGoal || sync != task.goalSync) return null
-        if (task.goalSync && !auto) return null
-        completed = true
-        return TrialResult(SystemClock.elapsedRealtime() - startedAt, touches, errors)
-    }
-}
-
 internal data class OtaReview(val rating: String, val feedback: String, val award: Int)
 internal data class LinkedMissionDestination(
     val name: String,
@@ -669,8 +585,6 @@ internal class OrbitData(private val context: Context) {
         balance += award
     }
 
-    val firstVariant: Variant
-        get() = if (prefs.getBoolean("comfortPresetFirst", false)) Variant.B else Variant.A
 
     val availableLabAward: Int
         get() = labAward(LocalDate.now())
@@ -1009,7 +923,6 @@ internal class OrbitData(private val context: Context) {
         val today = LocalDate.now()
         val award = labAward(today)
         prefs.edit()
-            .putBoolean("comfortPresetFirst", firstVariant == Variant.A)
             .putLong("comfortBaselineMillis", result.baseline.milliseconds)
             .putInt("comfortBaselineTouches", result.baseline.touches)
             .putInt("comfortBaselineErrors", result.baseline.errors)
