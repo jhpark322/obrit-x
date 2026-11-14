@@ -821,16 +821,31 @@ internal class OrbitData(private val context: Context) {
     }
 
     /** Picks the next experiment question for the report of the drive that just ended. */
+    /**
+     * Picks the one experiment question for this drive's report. When navigation predicted the arrival
+     * battery, the report shows predicted vs actual, so the question asks about that gap; otherwise the
+     * remaining experiments take turns (the arrival-battery one is skipped, there is nothing to ask about).
+     */
     private fun nextTripExperiment(): String {
-        val index = prefs.getInt("experimentRotation", 0)
-        val experiment = LabExperiments[index.mod(LabExperiments.size)]
-        prefs.edit().putInt("experimentRotation", index + 1).putString("tripExperiment", experiment.id)
+        val experiment = if (prefs.contains("tripPredictKwh")) {
+            LabExperiments.first { it.id == ArrivalBatteryExperiment }
+        } else {
+            val pool = LabExperiments.filter { it.id != ArrivalBatteryExperiment }
+            val index = prefs.getInt("experimentRotation", 0)
+            prefs.edit().putInt("experimentRotation", index + 1).apply()
+            pool[index.mod(pool.size)]
+        }
+        prefs.edit().putString("tripExperiment", experiment.id)
             .remove("tripExperimentAnswer").remove("tripExperimentPrompted").apply()
         tripExperimentId = experiment.id
         tripExperimentAnswer = null
         tripExperimentPrompted = false
         return experiment.id
     }
+
+    /** The arrival-battery question only makes sense once the report has both numbers to compare. */
+    val tripExperimentAskable: Boolean
+        get() = tripExperimentId != ArrivalBatteryExperiment || lastTrip?.arrivalGapKwh != null
 
     fun saveExperimentAnswer(answer: String) {
         val id = tripExperimentId ?: return
