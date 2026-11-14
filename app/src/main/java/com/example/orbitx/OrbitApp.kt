@@ -1871,7 +1871,7 @@ private fun LeagueClimateInsight(
                 val idle = snapshot?.idleZones.orEmpty()
                 val (status, color) = when {
                     vehicle == null || !parked || snapshot == null || snapshot.zones.isEmpty() ->
-                        "빈 좌석 공조는 효율을 깎아요" to OrbitInk
+                        "빈 좌석 공조는 효율을 깎을 수 있어요" to OrbitInk
                     idle.isNotEmpty() && CabinSeat.entries.all { snapshot.occupied[it] == false } ->
                         "아무도 없는데 공조가 켜져 있어요" to Amber
                     idle.isNotEmpty() -> "빈 좌석 공조 켜짐 · ${snapshot.seatLabels(idle)}" to Amber
@@ -1921,7 +1921,7 @@ private fun LeagueClimateInsight(
                 }
             }
             Text(
-                "전비와 사용자 평가가 함께 좋아야 OTA로 전체 적용해요  ·  내 차 ${if (comparison) "사용 중" else "미사용"}" +
+                "전비와 사용자 평가가 함께 좋아야 OTA 후보가 돼요  ·  내 차 ${if (comparison) "사용 중" else "미사용"}" +
                     (myRating?.let { "  ·  내 평가 $it" } ?: ""),
                 color = Muted, style = MaterialTheme.typography.bodyMedium,
             )
@@ -2183,7 +2183,7 @@ private fun ExperimentList(data: OrbitData) {
     Intro(
         "실험 목록",
         "모든 실험은 드라이브 리포트 질문을 함께 쓰고, 숫자로 볼 수 있는 실험은 주행 효율 리그로 효과를 재요. 실험마다 하나를 더해요. " +
-            "불편을 발견하고 시험한 뒤, 효과가 확인된 개선만 OTA로 배포하고 다시 확인해요.",
+            "불편을 발견하고 시험한 뒤, 사용자 반응과 성과가 확인된 개선만 OTA 후보가 되고 배포 뒤 다시 확인해요. 효과가 없으면 고치거나 접어요.",
     )
     // Every experiment is the same bundle of settings, so new ones need no new PLAY screen.
     LabExperiments.chunked(2).forEach { pair ->
@@ -2799,7 +2799,7 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
             if (comparison.reason == SeparateTemperatureFeedback) {
                 "조작을 줄이면서 두 좌석의 온도를 따로 저장하는 안을 다음 실험에서 비교할 수 있어요."
             } else {
-                "운전자가 손대야 했는지와 선호·이유를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
+                "운전자가 손대야 했는지와 선호·이유를 함께 보면, 착석 연동 자동 전환을 OTA 후보로 올릴지 판단할 수 있어요."
             },
             color = Muted,
         )
