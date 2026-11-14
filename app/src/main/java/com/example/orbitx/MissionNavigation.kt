@@ -173,10 +173,7 @@ internal class MissionNavigation(
                     target.address == address && (target.name.isEmpty() || name.isEmpty() || target.name == name)
                 } else target.name == name
                 if (!matches) return@launch
-                data.finishMission(null, destination = target)?.let {
-                    endRequest(null)
-                    postCompletion(it)
-                }
+                completeArrival(target)
             }
         }
 
@@ -434,6 +431,25 @@ internal class MissionNavigation(
         if (!accepted) return
         screenStatus = "주행 중 제안에서 주변 충전소를 열었어요."
         withClient { runCatching { it.requestNavigationScreen(NavigationScreenRequest.NearbyChargingStations) } }
+    }
+
+    private fun completeArrival(target: LinkedMissionDestination) {
+        data.finishMission(null, destination = target)?.let {
+            endRequest(null)
+            postCompletion(it)
+        }
+    }
+
+    /**
+     * Debug builds only (see src/debug): the Pleos emulator's navigation never moves the car, so it can't reach the
+     * destination. This replays the same arrival the NaviHelper event would deliver for the linked destination, and
+     * ends the guidance the way the navigation does on a real arrival.
+     */
+    internal fun replayArrivalForDemo() {
+        scope.launch {
+            data.linkedMissionDestination?.let(::completeArrival)
+            withClient { runCatching { it.cancelRoute() } }
+        }
     }
 
     private fun postCompletion(result: MissionCompletion) {

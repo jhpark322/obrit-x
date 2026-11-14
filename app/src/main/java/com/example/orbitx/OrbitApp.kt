@@ -196,7 +196,7 @@ internal fun OrbitApp(
         AlertDialog(
             onDismissRequest = data::acknowledgeMissionArrival,
             containerColor = OrbitPaper,
-            title = { Text(if (arrival.simulated) "모의 안내 도착" else "도착 인증 완료") },
+            title = { Text(if (arrival.simulated) "모의 안내 도착" else "도착 기록 완료") },
             text = {
                 val destination = arrival.destination ?: "목적지"
                 Text(if (arrival.award > 0) "$destination · ${arrival.title} · +${formatPoints(arrival.award)}"
@@ -204,10 +204,10 @@ internal fun OrbitApp(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    // The arrival notice promises the drive report, where this drive's X-LAB question is answered.
                     data.acknowledgeMissionArrival()
-                    pointsOrigin = Page.Trip
-                    page = Page.Points
-                }) { Text("참여 기록 보기") }
+                    page = Page.Trip
+                }) { Text("리포트 보기") }
             },
             dismissButton = {
                 TextButton(onClick = data::acknowledgeMissionArrival) { Text("확인") }
