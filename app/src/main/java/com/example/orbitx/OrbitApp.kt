@@ -2352,6 +2352,13 @@ private fun ClimateLab(
             if (snapshot?.zones?.any { it.seats.size > 1 } == true) {
                 Text("같은 공조 구역을 공유하는 좌석은 전원이 함께 켜져요.", color = Muted)
             }
+            val blowers = snapshot?.fanSpeeds.orEmpty()
+            val ownBlowers = blowers.filter { it.seats.size == 1 }
+            if (blowers.isNotEmpty()) Text(
+                if (ownBlowers.isNotEmpty()) "좌석별 풍량을 지원해 빈 좌석은 바람을 가장 약하게(지원 시 0단) 줄여요."
+                else "이 차량은 앞좌석 풍량이 하나로 묶여 있어, 빈 좌석만 따로 끄지 못하고 온도만 절전으로 맞춰요.",
+                color = Muted,
+            )
         }
     }
     if (comparison) {
@@ -2655,7 +2662,11 @@ private fun CabinSeatLabel(seat: CabinSeat, snapshot: CabinClimateSnapshot?, mod
         )
         val details = listOfNotNull(
             temperature?.takeIf { zone?.powered != false }?.let { degrees(it) },
-            fan?.value?.takeIf { zone?.powered != false }?.let { "${it}단" },
+            // A seat with its own blower is turned down to the lowest step (0 where the car allows it) when empty;
+            // a blower shared with another seat can only follow the occupied seat.
+            fan?.value?.takeIf { zone?.powered != false }?.let {
+                if (fan.seats.size > 1) "바람 ${it}단 (공유)" else "바람 ${it}단"
+            },
         )
         if (details.isNotEmpty()) {
             Text(details.joinToString(" · "), color = OrbitInk, style = MaterialTheme.typography.labelMedium,
