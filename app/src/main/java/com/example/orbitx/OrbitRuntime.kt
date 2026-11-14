@@ -73,7 +73,8 @@ internal object OrbitRuntime {
                 // The parked-only experiment question must not stay over navigation once the car moves.
                 if (source.parking == ParkingStatus.Restricted) ExperimentPrompt.cancel(appContext)
                 // After arrival, once parked, ask the drive's experiment question over navigation.
-                if (!uiVisible && source.parking == ParkingStatus.Parked) ExperimentPrompt.maybePost(appContext, data)
+                // The experiment question is a survey, so it is asked only in the app's drive report: Pleos
+                // review rules allow only driving-related notifications over navigation.
                 delay(SampleIntervalMs)
             }
         }

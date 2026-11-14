@@ -32,8 +32,8 @@ internal object ExperimentPrompt {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "X-LAB 실험 질문", NotificationManager.IMPORTANCE_HIGH))
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.orbit_launcher_mark)
-            // Shown right after a navigation arrival; the car UI only pops navigation-category notices over the map.
-            .setCategory(Notification.CATEGORY_NAVIGATION)
+            // A survey, not a driving notice: never use the navigation category for it. Posted only while parked.
+            .setCategory(Notification.CATEGORY_RECOMMENDATION)
             .setContentTitle(experiment.driveQuestion)
             .setContentText("X-LAB 실험 %02d · %s".format(experiment.number, experiment.title))
             .setAutoCancel(true)

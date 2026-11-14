@@ -99,7 +99,8 @@ class DriveSessionService : Service() {
         private const val CHANNEL = "drive-session"
         private const val NOTIFICATION_ID = 1003
         private const val CheckIntervalMs = 30_000L
-        private const val IdleStopMs = 10 * 60_000L
+        /** Pleos BG→CCH guide: no foreground service without a user-facing job, so stop soon after parking. */
+        private const val IdleStopMs = 2 * 60_000L
 
         fun start(context: Context) {
             runCatching { context.startForegroundService(Intent(context, DriveSessionService::class.java)) }
