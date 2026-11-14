@@ -78,6 +78,15 @@ internal class MissionNavigation(
     /** Current battery energy, used with [vehicleBatteryPercent] to turn the arrival energy into a %. */
     var vehicleBatteryKwh: Float? = null
 
+    /** Efficiency navigation implies for the route: remaining distance over the energy it expects to use. */
+    fun predictedEfficiency(plan: RoutePlan?): Double? {
+        val distance = plan?.distanceKm ?: return null
+        val arrival = plan.arrivalBatteryKwh ?: return null
+        val now = vehicleBatteryKwh ?: return null
+        val use = now - arrival
+        return if (use >= .1f && distance >= .5f) (distance / use).toDouble() else null
+    }
+
     /** Arrival battery as a % of capacity (capacity estimated from the car's current kWh and %). */
     fun arrivalPercent(plan: RoutePlan?): Int? {
         val energy = plan?.arrivalBatteryKwh ?: return null
