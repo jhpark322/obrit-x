@@ -666,7 +666,8 @@ private fun VehicleHeroCopy(modifier: Modifier, availableAward: Int, displayName
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            if (displayName.isBlank()) "PLEOS CONNECT" else "${displayName}님",
+            // Pleos profile name when readable, else the Pleos default profile label.
+            "${displayName.ifBlank { "운전자" }}님",
             color = Muted,
             style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
@@ -2970,7 +2971,19 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("홈 인사말 이름", style = MaterialTheme.typography.titleMedium)
-                Text(data.displayName.ifBlank { "설정 안 함" }, color = Muted)
+                Text(
+                    when {
+                        data.displayName.isBlank() -> "운전자 (Pleos 기본 프로필)"
+                        data.usesProfileName -> "${data.displayName}  ·  Pleos 프로필"
+                        else -> data.displayName
+                    },
+                    color = Muted,
+                )
+            }
+            if (!data.usesProfileName && data.profileName.isNotBlank()) {
+                TextButton(onClick = { data.saveDisplayName("") }, modifier = Modifier.heightIn(min = 64.dp)) {
+                    Text("프로필 이름 쓰기", color = Muted)
+                }
             }
             TextButton(onClick = { editingName = true }, modifier = Modifier.heightIn(min = 64.dp)) {
                 Text(if (data.displayName.isBlank()) "이름 설정" else "이름 변경")
