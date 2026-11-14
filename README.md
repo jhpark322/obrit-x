@@ -45,15 +45,15 @@
 
 ## 화면 미리보기
 
-Pleos Connect v2.1.0 에뮬레이터에서 현재 빌드로 캡처했습니다. 앱 화면은 앱 영역만 잘랐고, 주행 중 화면 세 장은 전체 화면입니다.
+Pleos Connect v2.1.0 에뮬레이터에서 현재 빌드로 캡처했습니다. 기록을 초기화한 뒤 Virtual Console로 주행 한 번(18 km, 배터리 60 → 57 kWh)을 넣어 리그와 드라이브 값을 만들었습니다. 앱 화면은 앱 영역만 잘랐고, 내비 화면은 전체 화면입니다.
 
 | 홈 | 주행 효율 리그 |
 | --- | --- |
 | ![홈](docs/screenshots/01_home.png) | ![리그](docs/screenshots/02_league.png) |
-| 슬로건과 인사말, PLAY·X-LAB 진입 | 이달 주행 기록, 빈 좌석 공조 인사이트, 같은 차종 비교(예시), 순위 |
+| 슬로건과 인사말, PLAY·X-LAB 진입, 포인트 | 이달 주행 18 km·추정 전비 6.0 km/kWh, 공조 인사이트와 같은 차종 비교(예시), 순위(예시) |
 | **드라이브** | **X-LAB** |
 | ![드라이브](docs/screenshots/04_drive.png) | ![X-LAB](docs/screenshots/08_xlab_experiments.png) |
-| 진행 중 카드, 드라이브 리포트, 나의 드라이브 기록 | X-LAB → 실험 목록: 실험 6개의 단계(발견 → 시험 → 배포 → 재확인)와 연결된 PLAY, 응답 수 |
+| 드라이브 리포트(18 km · 3 kWh · 6.0 km/kWh), X-LAB 실험 질문, 나의 드라이브 기록 | X-LAB → 실험 목록: 실험 6개의 단계(발견 → 시험 → 배포 → 재확인)와 연결된 PLAY, 응답 수 |
 | **착석 연동 공조** | **OTA 평가 (실제 도어 제어)** |
 | ![공조](docs/screenshots/09_climate.png) | ![OTA](docs/screenshots/10_ota.png) |
 | 빈 차량을 감지해 순정 공조를 끄고 "에너지 절약" 표시 | Vehicle SDK로 네 문을 잠그고 풀며 버튼을 평가 |
