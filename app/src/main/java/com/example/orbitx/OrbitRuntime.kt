@@ -65,7 +65,7 @@ internal object OrbitRuntime {
                 if (tick++ % RouteRefreshTicks == 0) navigation?.refreshRoute()
                 navigation?.vehicleBatteryPercent = source.readBatteryPercent()
                 // Pleos navigation's departure-time prediction, checked against the real arrival later.
-                data.notePredictedArrival(navigation?.route?.arrivalBatteryKwh)
+                data.notePredictedArrival(navigation?.route?.arrivalBatteryKwh, navigation?.route?.distanceKm)
                 // While driving, keep the reasons a drive may use more battery than navigation predicted.
                 if (source.parking != ParkingStatus.Parked && data.activeMission != null) {
                     data.recordClimate(source.readClimateOn(), (SampleIntervalMs / 1_000).toInt())

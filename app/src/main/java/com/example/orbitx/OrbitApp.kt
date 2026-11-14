@@ -1248,7 +1248,7 @@ private fun Trip(
                 if (data.availableDriveAward > 0) Chip("도착 +${formatPoints(data.availableDriveAward)}")
             }
             navigation?.route?.let { plan ->
-                RouteEnergyCheck(plan, navigation.arrivalPercent(plan), rangeKm, onCharge = { navigation.openNavigation(DriveMode.Charge.searchRequest) })
+                RouteEnergyCheck(plan, navigation.arrivalPercent(plan), navigation.predictedEfficiency(plan), rangeKm, onCharge = { navigation.openNavigation(DriveMode.Charge.searchRequest) })
             }
             Text(
                 when {
@@ -1379,6 +1379,9 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                         }
                         else -> null
                     },
+                    trip.predictedEfficiency?.let { predicted ->
+                        trip.efficiency?.let { "예상 전비 ${efficiency(predicted)} → 실제 ${efficiency(it)} km/kWh" }
+                    },
                     trip.arrivalGapKwh?.let { gap ->
                         when {
                             gap >= ArrivalGapNoticeKwh -> "예측보다 ${efficiency(gap.toDouble())} kWh 더 씀"
@@ -1399,7 +1402,13 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                     val habits = listOfNotNull(
                         b.hardAccel.takeIf { it >= 0 }?.let { "급가속 ${it}회" },
                         b.hardBrake.takeIf { it >= 0 }?.let { "급제동 ${it}회" },
-                        b.climateMinutes.takeIf { it >= 0 }?.let { if (it == 0) "공조 꺼짐" else "공조 ${it}분" },
+                        b.climateMinutes.takeIf { it >= 0 }?.let {
+                            if (it == 0) "공조 꺼짐"
+                            else {
+                                val kwh = it * ClimateKwhPerMinute
+                                "공조 ${it}분 (추정 " + (if (kwh < .1f) "0.1 kWh 미만" else "약 ${efficiency(kwh.toDouble())} kWh") + ")"
+                            }
+                        },
                         b.avgSpeedKph?.let { "평균 ${it} km/h" },
                     )
                     if (habits.isNotEmpty()) Text("주행 중 측정  ·  " + habits.joinToString("  ·  "),
@@ -1453,13 +1462,14 @@ private fun ReportQuestion(title: String, options: List<String>, onPick: (String
 private val PlausibleEvEfficiency = 2.0..12.0
 
 @Composable
-private fun RouteEnergyCheck(plan: RoutePlan, arrivalPercent: Int?, rangeKm: Float?, onCharge: () -> Unit) {
+private fun RouteEnergyCheck(plan: RoutePlan, arrivalPercent: Int?, predictedEfficiency: Double?, rangeKm: Float?, onCharge: () -> Unit) {
     val distance = plan.distanceKm
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             "남은 거리" to (distance?.let { "${efficiency(it.toDouble())} km" } ?: "-"),
             "남은 시간" to (plan.minutes?.let { "약 ${it}분" } ?: "-"),
             "도착 시 배터리" to (arrivalPercent?.let { "약 $it%" } ?: plan.arrivalBatteryKwh?.let { "${efficiency(it.toDouble())} kWh" } ?: "-"),
+            "예상 전비 (내비)" to (predictedEfficiency?.let { "${efficiency(it)} km/kWh" } ?: "-"),
         ).forEach { (label, value) ->
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Glass)
