@@ -132,7 +132,7 @@ private const val SeparateTemperatureFeedback = "동승석 온도를 따로 맞�
 private enum class Page(val label: String) {
     Home("홈"), Play("PLAY"), Trip("드라이브"), Arrival("도착 기록"),
     Lab("X-LAB"), Trial("X-LAB"), Between("X-LAB"), Preference("X-LAB"), Insight("INSIGHT"), Points("MY ORBIT"),
-    League("주행 효율 리그"), OtherLeagues("다른 리그 구경하기"), Ota("OTA 업데이트 평가"), LabFeedback("아이디어·피드백"),
+    League("주행 효율 리그"), OtherLeagues("다른 리그 구경하기"), Ota("OTA 업데이트 평가"), LabFeedback("아이디어·피드백"), Experiments("실험 목록"),
     SyncMission("차량 기능 써보기"), ClimateLab("착석 연동 공조"),
 }
 
@@ -179,7 +179,7 @@ internal fun OrbitApp(
             Page.Arrival -> page = Page.Trip
             Page.Insight -> page = Page.ClimateLab
             Page.ClimateLab -> page = climateOrigin
-            Page.LabFeedback -> page = Page.Lab
+            Page.LabFeedback, Page.Experiments -> page = Page.Lab
             Page.Ota -> page = otaOrigin
             Page.Points -> page = pointsOrigin
             Page.Trip, Page.League, Page.SyncMission -> page = Page.Play
@@ -314,6 +314,7 @@ internal fun OrbitApp(
                             page = Page.Ota
                         },
                         onFeedback = { page = Page.LabFeedback },
+                        onExperiments = { page = Page.Experiments },
                     )
                     Page.ClimateLab -> ClimateLab(
                         data = data,
@@ -392,6 +393,7 @@ internal fun OrbitApp(
                         pointsOrigin = Page.Ota
                         page = Page.Points
                     })
+                    Page.Experiments -> ExperimentList(data)
                     Page.LabFeedback -> LabFeedback(data, parked, onPoints = {
                         pointsOrigin = Page.LabFeedback
                         page = Page.Points
@@ -404,7 +406,7 @@ internal fun OrbitApp(
             Page.Trip, Page.Arrival, Page.League, Page.OtherLeagues, Page.SyncMission -> Page.Play
             // X-LAB content always lights the X-LAB tab; back still returns to where the user came from.
             Page.ClimateLab, Page.Trial, Page.Between, Page.Preference, Page.Insight -> Page.Lab
-            Page.LabFeedback -> Page.Lab
+            Page.LabFeedback, Page.Experiments -> Page.Lab
             Page.Ota -> otaOrigin
         }
         OrbitTabs(selectedTab) { target ->
@@ -2155,7 +2157,9 @@ private fun StageTrack(stage: Int) {
 }
 
 @Composable
-private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Unit, onFeedback: () -> Unit) {
+private fun LabOverview(
+    data: OrbitData, onClimate: () -> Unit, onOta: () -> Unit, onFeedback: () -> Unit, onExperiments: () -> Unit,
+) {
     Intro("X-LAB", "고객의 제안과 새로운 아이디어를 직접 써보고, 다음 변화를 함께 만들어요.")
     AdaptivePair(
         first = { modifier ->
@@ -2175,18 +2179,26 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
             )
         },
     )
+    val testing = LabExperiments.count { it.stage in 1..2 }
+    val responses = data.experimentResponses.values.sum()
+    QuickEntry(
+        R.drawable.orbit_lab, "실험 목록",
+        "실험 ${LabExperiments.size}개 · 시험 중 ${testing}개 · 드라이브 응답 ${responses}건",
+        "실험 목록 보기", Modifier.fillMaxWidth().heightIn(min = 148.dp), onExperiments,
+    )
     QuickEntry(
         R.drawable.orbit_lab, "아이디어·피드백", "필요한 차량 기능을 제안하거나 체험 후 의견을 남겨요.",
         "의견 남기기", Modifier.fillMaxWidth().heightIn(min = 148.dp), onFeedback,
     )
-    Panel {
-        Text("실험 목록", style = MaterialTheme.typography.titleLarge)
-        Text(
-            "모든 실험은 주행 효율 리그와 드라이브 리포트 질문을 함께 쓰고, 실험마다 하나를 더해요. " +
-                "불편을 발견하고 시험한 뒤, 효과가 확인된 개선만 OTA로 배포하고 다시 확인해요.",
-            color = Muted,
-        )
-    }
+}
+
+@Composable
+private fun ExperimentList(data: OrbitData) {
+    Intro(
+        "실험 목록",
+        "모든 실험은 주행 효율 리그와 드라이브 리포트 질문을 함께 쓰고, 실험마다 하나를 더해요. " +
+            "불편을 발견하고 시험한 뒤, 효과가 확인된 개선만 OTA로 배포하고 다시 확인해요.",
+    )
     // Every experiment is the same bundle of settings, so new ones need no new PLAY screen.
     LabExperiments.chunked(2).forEach { pair ->
         AdaptivePair(
