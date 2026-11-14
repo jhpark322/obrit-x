@@ -1,6 +1,7 @@
 package com.example.orbitx
 
 import ai.pleos.playground.navi.data.NavigationScreenRequest
+import android.os.SystemClock
 import android.graphics.drawable.AnimatedImageDrawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -332,6 +333,12 @@ internal fun OrbitApp(
                                 results = emptyMap()
                                 trial = ClimateTrial(first, climateTask)
                                 page = Page.Trial
+                            }
+                        },
+                        onFinished = { result ->
+                            if (parked) {
+                                data.finishExperiment(result)
+                                page = Page.Insight
                             }
                         },
                     )
@@ -2247,6 +2254,7 @@ private fun ClimateLab(
     availableAward: Int,
     onPrevious: () -> Unit,
     onStart: () -> Unit,
+    onFinished: (Comparison) -> Unit,
 ) {
     var cabin by remember { mutableStateOf<CabinClimateSnapshot?>(null) }
     var comparison by rememberSaveable { mutableStateOf(startWithComparison) }
@@ -2347,28 +2355,212 @@ private fun ClimateLab(
         }
     }
     if (comparison) {
-      Panel {
-        Text("혼자 탈 때는 운전석만, 동승자가 타면 앞좌석으로", style = MaterialTheme.typography.titleLarge)
-        Text(
-            if (availableAward > 0) "첫 완료 보상  +${formatPoints(availableAward)}" else "수동 전환과 자동 전환을 체험하고 선호를 남겨요.",
-            color = OrbitBlue,
-            style = MaterialTheme.typography.labelLarge,
-        )
-        AdaptivePair(
-            first = { modifier -> LabPreview(Variant.A, ClimateTask.PassengerArrival, modifier) },
-            second = { modifier -> LabPreview(Variant.B, ClimateTask.PassengerArrival, modifier) },
-        )
-        Text(
-            "Pleos 착석 신호 또는 화면 버튼으로 탑승과 하차를 체험해요. 송풍 범위는 앱에서 재현해요.",
-            color = Muted,
-        )
-        if (interrupted) Text("주차 상태가 바뀌어 진행 중이던 실험이 종료됐어요.", color = OrbitBlue)
-        if (!parked) Text("기어가 P이고 Pleos 주행 제한이 해제되면 시작할 수 있어요.", color = Muted)
-        Action("A/B 비교 시작", enabled = parked, onClick = onStart)
-        if (hasResult) OutlinedButton(onClick = onPrevious, modifier = Modifier.heightIn(min = 54.dp)) {
-            Text("최근 실험 결과")
+        SyncComparison(vehicle, parked, availableAward, hasResult, interrupted, onPrevious, onFinished)
+    }
+}
+
+private val ComparisonSteps = listOf("직접 바꾸기", "앉으면 자동으로", "결과")
+
+@Composable
+private fun ComparisonStepTrack(current: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ComparisonSteps.forEachIndexed { index, label ->
+            val active = index == current
+            val shape = RoundedCornerShape(50)
+            Box(
+                Modifier.clip(shape)
+                    .background(if (active) MaterialTheme.colorScheme.inverseSurface else OrbitPaper)
+                    .border(1.dp, if (index <= current) MaterialTheme.colorScheme.inverseSurface else Border, shape)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    "${index + 1}  $label",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        active -> MaterialTheme.colorScheme.inverseOnSurface
+                        index < current -> OrbitInk
+                        else -> Muted
+                    },
+                )
+            }
+            if (index < ComparisonSteps.lastIndex) Text("→", color = Muted)
         }
-      }
+    }
+}
+
+/**
+ * A/B test on the real car: the same task (front seats share one temperature when a passenger gets in)
+ * done the current way in the stock climate screen, then by the proposal that switches SYNC on when the
+ * passenger seat reports occupied. Both rounds are timed from vehicle signals, not an in-app mock-up.
+ */
+@Composable
+private fun SyncComparison(
+    vehicle: VehicleAccess?,
+    parked: Boolean,
+    availableAward: Int,
+    hasResult: Boolean,
+    interrupted: Boolean,
+    onPrevious: () -> Unit,
+    onFinished: (Comparison) -> Unit,
+) {
+    // 0 intro, 1 direct (stock screen), 2 automatic (proposal), 3 result.
+    var step by rememberSaveable { mutableStateOf(0) }
+    var direct by remember { mutableStateOf<TrialResult?>(null) }
+    var automatic by remember { mutableStateOf<TrialResult?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var elapsed by remember { mutableStateOf(0L) }
+    var simulateSeat by remember { mutableStateOf(false) }
+    val connected = vehicle != null
+    LaunchedEffect(parked) { if (!parked && step in 1..2) { step = 0; status = "주차 상태가 바뀌어 비교를 멈췄어요." } }
+    LaunchedEffect(step, parked) {
+        val car = vehicle ?: return@LaunchedEffect
+        if (!parked) return@LaunchedEffect
+        when (step) {
+            1 -> {
+                status = "준비 중 · SYNC를 꺼 두고 있어요."
+                if (car.setFrontSync(false) != false) { status = "차량 SYNC를 끌 수 없어 시작하지 못했어요."; step = 0; return@LaunchedEffect }
+                status = null
+                val start = SystemClock.elapsedRealtime()
+                while (true) {
+                    elapsed = SystemClock.elapsedRealtime() - start
+                    if (car.readFrontSync() == true) break
+                    delay(400)
+                }
+                direct = TrialResult(SystemClock.elapsedRealtime() - start, touches = -1, errors = 0)
+                step = 2
+            }
+            2 -> {
+                simulateSeat = false
+                status = "준비 중 · SYNC를 다시 꺼 두고 있어요."
+                if (car.setFrontSync(false) != false) { status = "차량 SYNC를 끌 수 없어 진행하지 못했어요."; step = 0; return@LaunchedEffect }
+                while (car.readPassengerOccupied() == true && !simulateSeat) {
+                    status = "동승석을 비워 주세요 · Virtual Console의 Seat Occupancy에서 조수석을 Empty로 바꿔요."
+                    delay(400)
+                }
+                status = null
+                while (!simulateSeat && car.readPassengerOccupied() != true) delay(300)
+                val signal = if (simulateSeat) ClimateSignal.Simulated else ClimateSignal.Pleos
+                val seatedAt = SystemClock.elapsedRealtime()
+                val on = car.setFrontSync(true) == true || car.readFrontSync() == true
+                if (!on) { status = "SYNC를 켜지 못했어요. 다시 시도해 주세요."; step = 0; return@LaunchedEffect }
+                automatic = TrialResult(SystemClock.elapsedRealtime() - seatedAt, touches = 0, errors = 0, signal = signal)
+                step = 3
+            }
+        }
+    }
+    Panel {
+        Text("동승자가 탔을 때, 어느 쪽이 편할까요?", style = MaterialTheme.typography.titleLarge)
+        Text(
+            if (availableAward > 0) "첫 완료 보상  +${formatPoints(availableAward)}  ·  약 2분  ·  실제 차량 공조가 바뀌어요"
+            else "약 2분  ·  실제 차량 공조가 바뀌어요",
+            color = OrbitBlue, style = MaterialTheme.typography.labelLarge,
+        )
+        ComparisonStepTrack(if (step == 0) -1 else step - 1)
+        status?.let { Text(it, color = Amber, style = MaterialTheme.typography.titleMedium) }
+        when (step) {
+            0 -> {
+                AdaptivePair(
+                    first = { modifier ->
+                        ComparisonCard("1  ·  지금 방식", "직접 바꾸기",
+                            "화면 아래 공조 버튼을 눌러 순정 공조 화면에서 SYNC를 켜요.",
+                            "SYNC가 켜질 때까지 걸린 시간 (차량 신호)", modifier)
+                    },
+                    second = { modifier ->
+                        ComparisonCard("2  ·  개선안", "앉으면 자동으로",
+                            "동승석에 앉으면 앱이 SYNC를 대신 켜요. 운전자는 아무것도 하지 않아요.",
+                            "앉은 뒤 SYNC가 켜질 때까지 시간, 조작 횟수", modifier)
+                    },
+                    matchHeight = true,
+                )
+                if (interrupted) Text("주차 상태가 바뀌어 진행 중이던 실험이 종료됐어요.", color = OrbitBlue)
+                when {
+                    !connected -> Text("차량에 연결되면 시작할 수 있어요.", color = Muted)
+                    !parked -> Text("기어가 P이고 Pleos 주행 제한이 해제되면 시작할 수 있어요.", color = Muted)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Action("비교 시작", enabled = parked && connected) {
+                        status = null; direct = null; automatic = null; step = 1
+                    }
+                    if (hasResult) OutlinedButton(onClick = onPrevious, modifier = Modifier.heightIn(min = 54.dp)) {
+                        Text("최근 실험 결과")
+                    }
+                }
+            }
+            1 -> {
+                Text("동승자가 탔어요. 앞좌석 온도를 함께 맞춰 주세요.", style = MaterialTheme.typography.headlineSmall)
+                Text("화면 아래 공조 버튼 → 공조 화면에서 SYNC를 켜요. 켜지면 자동으로 다음 단계로 넘어가요.", color = Muted)
+                Text("${seconds(elapsed)}초", style = MaterialTheme.typography.displaySmall, color = OrbitBlue)
+                OutlinedButton(onClick = { step = 0 }, modifier = Modifier.heightIn(min = 54.dp)) { Text("그만하기") }
+            }
+            2 -> {
+                Text("이번에는 아무것도 누르지 않아도 돼요.", style = MaterialTheme.typography.headlineSmall)
+                Text("동승석에 앉으면(Virtual Console Seat Occupancy → Occupied) 앱이 SYNC를 켜요.", color = Muted)
+                direct?.let { Text("직접 바꾸기  ·  ${seconds(it.milliseconds)}초 기록", color = Muted) }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { simulateSeat = true }, modifier = Modifier.heightIn(min = 54.dp)) {
+                        Text("동승자 탑승 시연")
+                    }
+                    OutlinedButton(onClick = { step = 0 }, modifier = Modifier.heightIn(min = 54.dp)) { Text("그만하기") }
+                }
+            }
+            3 -> {
+                val a = direct
+                val b = automatic
+                if (a != null && b != null) {
+                    AdaptivePair(
+                        first = { modifier -> ComparisonResultCard("직접 바꾸기", a, "순정 공조 화면에서 직접 조작", modifier) },
+                        second = { modifier ->
+                            ComparisonResultCard("앉으면 자동으로", b,
+                                "조작 0회 · ${b.signal?.label ?: "착석 신호"}", modifier)
+                        },
+                        matchHeight = true,
+                    )
+                    var choice by remember { mutableStateOf<String?>(null) }
+                    if (choice == null) {
+                        Text("어느 쪽이 편했나요?", style = MaterialTheme.typography.titleMedium)
+                        ChoiceButtons(listOf("직접 바꾸기", "앉으면 자동으로", "차이 없음")) { choice = it }
+                    } else {
+                        Text("왜 그렇게 느꼈나요?", style = MaterialTheme.typography.titleMedium)
+                        ChoiceButtons(listOf("직접 안 해도 돼서 편해요", "언제 바뀌는지 직접 정하고 싶어요", SeparateTemperatureFeedback)) {
+                            onFinished(Comparison(a, b, choice.orEmpty(), it, ClimateTask.SyncPreset))
+                            step = 0
+                        }
+                    }
+                    OutlinedButton(onClick = {
+                        onFinished(Comparison(a, b, choice ?: "응답 건너뜀", "", ClimateTask.SyncPreset))
+                        step = 0
+                    }, modifier = Modifier.heightIn(min = 54.dp)) { Text("건너뛰고 결과 보기") }
+                } else {
+                    step = 0
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComparisonCard(eyebrow: String, title: String, does: String, measures: String, modifier: Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(16.dp)).background(Glass).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Eyebrow(eyebrow)
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+        ExperimentPlay("하는 일", does, active = true)
+        ExperimentPlay("재는 것", measures, active = true)
+    }
+}
+
+@Composable
+private fun ComparisonResultCard(title: String, result: TrialResult, detail: String, modifier: Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(16.dp)).background(Glass).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall, color = OrbitBlue)
+        Text(detail, color = Muted)
     }
 }
 
@@ -2616,6 +2808,7 @@ private val ClimateTask.presetLabel get() = when (this) {
 }
 
 private fun Variant.labelFor(task: ClimateTask) = when {
+    task == ClimateTask.SyncPreset -> if (this == Variant.A) "직접 바꾸기" else "앉으면 자동으로"
     task != ClimateTask.PassengerArrival -> title
     this == Variant.A -> "기본 조작 재현"
     else -> "동승석 자동 전환"
@@ -2884,7 +3077,8 @@ private fun Preference(task: ClimateTask, onFinish: (String, String) -> Unit) {
 private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
     val difference = comparison.baseline.milliseconds - comparison.preset.milliseconds
     val faster = if (difference > 0) "B안" else "A안"
-    val airflowExperiment = comparison.baseline.signal != null || comparison.preset.signal != null
+    val airflowExperiment = comparison.task == ClimateTask.PassengerArrival &&
+        (comparison.baseline.signal != null || comparison.preset.signal != null)
     val timing = if (airflowExperiment) "탑승·하차 시 송풍 범위 변경"
         else if (comparison.task == ClimateTask.PassengerArrival) "이전 탑승 시연 기록"
         else if (abs(difference) < 100) "두 화면의 완료 시간이 비슷했어요."
@@ -2901,6 +3095,8 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
         Text(
             if (comparison.reason == SeparateTemperatureFeedback) {
                 "조작을 줄이면서 두 좌석의 온도를 따로 저장하는 안을 다음 실험에서 비교할 수 있어요."
+            } else if (comparison.baseline.touches < 0) {
+                "실제 차량에서 잰 시간과 선호를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
             } else if (airflowExperiment) {
                 "선호와 이유를 함께 보면 출시 전에 자동 전환 시점과 수동 조작이 필요한 상황을 더 살펴볼 수 있어요."
             } else {
@@ -2926,8 +3122,18 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
 private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier, showTiming: Boolean) {
     Panel(modifier) {
         Text(label, style = MaterialTheme.typography.titleMedium)
-        Text("${result.touches}탭", style = MaterialTheme.typography.displaySmall)
-        if (showTiming) Text("${seconds(result.milliseconds)}초  ·  오조작 ${result.errors}회", color = Muted)
+        if (result.touches < 0) {
+            // Done in the stock climate screen: time comes from vehicle signals, taps happen outside the app.
+            Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall)
+            Text("순정 공조 화면에서 직접 조작", color = Muted)
+        } else if (showTiming && result.signal != null) {
+            // Real-car round: compare by time like the manual round.
+            Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall)
+            Text("조작 ${result.touches}회", color = Muted)
+        } else {
+            Text("${result.touches}탭", style = MaterialTheme.typography.displaySmall)
+            if (showTiming) Text("${seconds(result.milliseconds)}초  ·  오조작 ${result.errors}회", color = Muted)
+        }
         result.signal?.let { Text(it.label, color = Muted) }
     }
 }

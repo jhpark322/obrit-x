@@ -737,6 +737,18 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
 
     suspend fun readPassengerOccupied(): Boolean? = sdk?.let { readSeatOccupied(it, CabinSeat.Passenger.value) }
 
+    /** Turns front temperature sync (SYNC) on or off, parked only, and returns the state the car reports after. */
+    suspend fun setFrontSync(on: Boolean): Boolean? {
+        val vehicle = sdk ?: return null
+        if (!canWriteClimate(vehicle)) return null
+        val accepted = climateCommand { done, failed ->
+            vehicle.getHVAC().setHvacDual(FrontSeats, on, { _, _ -> done() }, failed)
+        }
+        if (!accepted) return null
+        delay(250)
+        return readFrontSync(vehicle)
+    }
+
     private suspend fun readSeatOccupied(vehicle: Vehicle, seat: SeatValue): Boolean? =
         readVehicleValue<Boolean> { done, failed ->
             vehicle.getSeat().getCurrentSeatOccupancy(SeatArea(seat), done, failed)
