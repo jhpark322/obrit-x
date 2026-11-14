@@ -1394,6 +1394,17 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                     },
                 )
                 if (notes.isNotEmpty()) Text(notes.joinToString("  ·  "), color = Muted, style = MaterialTheme.typography.bodyMedium)
+                // What the car measured while driving: the likely reasons for a gap with the prediction.
+                trip.behavior?.let { b ->
+                    val habits = listOfNotNull(
+                        b.hardAccel.takeIf { it >= 0 }?.let { "급가속 ${it}회" },
+                        b.hardBrake.takeIf { it >= 0 }?.let { "급제동 ${it}회" },
+                        b.climateMinutes.takeIf { it >= 0 }?.let { if (it == 0) "공조 꺼짐" else "공조 ${it}분" },
+                        b.avgSpeedKph?.let { "평균 ${it} km/h" },
+                    )
+                    if (habits.isNotEmpty()) Text("주행 중 측정  ·  " + habits.joinToString("  ·  "),
+                        color = Muted, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
         // One question at a time: mood, whether the recommendation fit, then one X-LAB experiment question

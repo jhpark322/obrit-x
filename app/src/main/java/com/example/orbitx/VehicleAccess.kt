@@ -98,6 +98,9 @@ internal data class LeagueVehicleSample(
     val chargeSwitchOn: Boolean? = null,
 )
 
+/** AAOS runtime permission for PERF_VEHICLE_SPEED. */
+internal const val SpeedPermission = "android.car.permission.CAR_SPEED"
+
 internal class VehicleAccess(private val context: Context, private val scope: CoroutineScope) {
     private var gear by mutableStateOf<VehicleGear?>(null)
     private var requiresOptimization by mutableStateOf<Boolean?>(null)
@@ -174,6 +177,34 @@ internal class VehicleAccess(private val context: Context, private val scope: Co
     }
 
     suspend fun readFrontSync(): Boolean? = sdk?.let { readFrontSync(it) }
+
+    /** Vehicle speed in km/h from AAOS (Pleos SDK has none); needs the runtime CAR_SPEED permission. */
+    suspend fun readSpeedKph(): Float? {
+        if (context.checkSelfPermission(SpeedPermission) != PackageManager.PERMISSION_GRANTED) return null
+        // AAOS reports m/s.
+        return readCarProperty<Float>(VehiclePropertyIds.PERF_VEHICLE_SPEED)
+            ?.takeIf { it.isFinite() }?.let { abs(it) * 3.6f }
+    }
+
+    /** Whether the brake pedal is pressed (Pleos Vehicle SDK). */
+    suspend fun readBrakePressed(): Boolean? {
+        val vehicle = sdk ?: return null
+        return readVehicleValue(vehicle.getBrake()::getCurrentBrakePedalStatus)
+    }
+
+    private var climatePowerAreas: List<SeatArea>? = null
+
+    /** Whether any climate zone is powered, read-only. */
+    suspend fun readClimateOn(): Boolean? {
+        val vehicle = sdk ?: return null
+        val hvac = vehicle.getHVAC()
+        val areas = climatePowerAreas ?: readVehicleValue<List<SeatArea>> { done, failed ->
+            hvac.checkHvacPowerCapabilities({ _, supported -> done(supported) }, failed)
+        }?.also { climatePowerAreas = it }
+        if (areas.isNullOrEmpty()) return null
+        val states = areas.map { area -> readVehicleValue<Boolean> { done, failed -> hvac.getHvacPowerState(area, done, failed) } }
+        return if (states.all { it == null }) null else states.any { it == true }
+    }
 
     suspend fun readDrivingTelemetry(): DrivingTelemetry? {
         val vehicle = sdk ?: return null
