@@ -48,12 +48,12 @@ internal val LabExperiments = listOf(
     ),
     LabExperiment(
         "charging-stop", 3, "충전 안내 개선",
-        "순정에도 저잔량 충전 안내가 있지만, 주행 중 언제 어떻게 알려야 도움이 되는지 몰라요.",
+        "순정 EV 경로 플래너와 저잔량 안내가 주행 중 실제로 도움이 되는지 몰라요.",
         stage = 1,
         leagueMetric = "도착 배터리와 충전 구간",
         driveQuestion = "주행 중 충전 안내가 도움됐나요?",
         answers = listOf("도움됐어요", "필요 없어요", "못 받았어요"),
-        extraPlay = "도착 배터리 기준 내비 위 알림", extraReady = true,
+        extraPlay = "주행 중 내비 위 충전 안내", extraReady = true,
     ),
     LabExperiment(
         "vent-direction", 4, "송풍구 방향 바로 조절",
