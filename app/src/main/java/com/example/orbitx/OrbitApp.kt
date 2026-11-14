@@ -2144,22 +2144,18 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
     )
     Panel {
         Text("다음 실험", style = MaterialTheme.typography.titleLarge)
-        Text("시승기와 초기 사용자들이 지적한 Pleos Connect의 불편을 개선안으로 먼저 검증해요.", color = Muted)
-        // Each item is a reported pain point of the current Pleos Connect (source noted), not a made-up idea.
+        Text("지금 Pleos Connect에서 불편한 점을 개선안으로 먼저 검증해요.", color = Muted)
+        // Each item is a known pain point of the current Pleos Connect, not a made-up idea.
         listOf(
-            Triple("실험 03  ·  송풍구 방향 바로 조절",
+            "실험 03  ·  송풍구 방향 바로 조절" to
                 "숨은 송풍구 방향을 화면 메뉴 여러 단계에서만 바꿀 수 있어요. 자주 쓰는 바람 방향을 한 번에 바꾸는 방식과 비교해요.",
-                "근거 · ZDNet·Jalopnik 그랜저 시승기"),
-            Triple("실험 04  ·  주행 정보 한곳에",
+            "실험 04  ·  주행 정보 한곳에" to
                 "속도는 HUD, 주행가능거리는 9.9인치, 내비는 17인치로 흩어져 있어요. 필요한 정보를 한곳에 모은 배치와 비교해요.",
-                "근거 · ZDNet 그랜저 시승기"),
-            Triple("실험 05  ·  Gleo 음성 명령",
+            "실험 05  ·  Gleo 음성 명령" to
                 "‘에어컨 높여줘, 더워’ 같은 표현을 알아듣지 못할 때가 있어요. 주차 중 실패한 표현을 모아 다음 개선 과제로 넘겨요.",
-                "근거 · ZDNet 시승기, 초기 사용자 평가 보도"),
-            Triple("실험 06  ·  화면 멈춤 바로 신고",
-                "화면이 멈추거나 재부팅됐다는 사례가 공유되고 있어요. 문제가 생긴 순간을 탭 한 번으로 남겨 재현 정보를 모아요.",
-                "근거 · 초기 사용자 평가 보도(커뮤니티 사례)"),
-        ).forEach { (title, description, source) ->
+            "실험 06  ·  화면 멈춤 바로 신고" to
+                "화면이 멈추거나 재부팅되는 경우가 있어요. 문제가 생긴 순간을 탭 한 번으로 남겨 재현 정보를 모아요.",
+        ).forEach { (title, description) ->
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2168,7 +2164,6 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     Text(description, color = Muted, style = MaterialTheme.typography.bodyMedium)
-                    Text(source, color = Muted.copy(alpha = .7f), style = MaterialTheme.typography.labelSmall)
                 }
                 Text("준비 중", color = Muted, style = MaterialTheme.typography.labelLarge)
             }
