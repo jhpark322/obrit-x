@@ -2321,7 +2321,9 @@ private fun ComparisonStepTrack(current: Int) {
 /**
  * A/B test on the real car: the same task (front seats share one temperature when a passenger gets in)
  * done the current way in the stock climate screen, then by the proposal that switches SYNC on when the
- * passenger seat reports occupied. Both rounds are timed from vehicle signals, not an in-app mock-up.
+ * passenger seat reports occupied. Both rounds are confirmed from vehicle signals, not an in-app mock-up.
+ * What is compared is whether the driver has to step in, not how fast: most people leave climate on and
+ * only adjust it when it feels wrong, so a stopwatch race would not reflect real use.
  */
 @Composable
 private fun SyncComparison(
@@ -2337,7 +2339,6 @@ private fun SyncComparison(
     var direct by remember { mutableStateOf<TrialResult?>(null) }
     var automatic by remember { mutableStateOf<TrialResult?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
-    var elapsed by remember { mutableStateOf(0L) }
     var simulateSeat by remember { mutableStateOf(false) }
     val connected = vehicle != null
     LaunchedEffect(parked) { if (!parked && step in 1..2) { step = 0; status = "주차 상태가 바뀌어 비교를 멈췄어요." } }
@@ -2350,11 +2351,7 @@ private fun SyncComparison(
                 if (car.setFrontSync(false) != false) { status = "차량 SYNC를 끌 수 없어 시작하지 못했어요."; step = 0; return@LaunchedEffect }
                 status = null
                 val start = SystemClock.elapsedRealtime()
-                while (true) {
-                    elapsed = SystemClock.elapsedRealtime() - start
-                    if (car.readFrontSync() == true) break
-                    delay(400)
-                }
+                while (car.readFrontSync() != true) delay(400)
                 direct = TrialResult(SystemClock.elapsedRealtime() - start, touches = -1, errors = 0)
                 step = 2
             }
@@ -2392,12 +2389,12 @@ private fun SyncComparison(
                     first = { modifier ->
                         ComparisonCard("1  ·  지금 방식", "직접 바꾸기",
                             "화면 아래 공조 버튼을 눌러 순정 공조 화면에서 SYNC를 켜요.",
-                            "SYNC가 켜질 때까지 걸린 시간 (차량 신호)", modifier)
+                            "운전자가 공조 화면을 열어 직접 맞춰야 하는지 (차량 SYNC 신호)", modifier)
                     },
                     second = { modifier ->
                         ComparisonCard("2  ·  개선안", "앉으면 자동으로",
                             "동승석에 앉으면 앱이 SYNC를 대신 켜요. 운전자는 아무것도 하지 않아요.",
-                            "앉은 뒤 SYNC가 켜질 때까지 시간, 조작 횟수", modifier)
+                            "운전자 조작 없이 앞좌석 온도가 맞춰지는지 (차량 SYNC 신호)", modifier)
                     },
                     matchHeight = true,
                 )
@@ -2417,13 +2414,13 @@ private fun SyncComparison(
             1 -> {
                 Text("동승자가 탔어요. 앞좌석 온도를 함께 맞춰 주세요.", style = MaterialTheme.typography.headlineSmall)
                 Text("화면 아래 공조 버튼 → 공조 화면에서 SYNC를 켜요. 켜지면 자동으로 다음 단계로 넘어가요.", color = Muted)
-                Text("${seconds(elapsed)}초", style = MaterialTheme.typography.displaySmall, color = OrbitBlue)
+                Text("SYNC가 켜지기를 기다리는 중", style = MaterialTheme.typography.titleMedium, color = OrbitBlue)
                 OutlinedButton(onClick = { step = 0 }, modifier = Modifier.heightIn(min = 54.dp)) { Text("그만하기") }
             }
             2 -> {
                 Text("이번에는 아무것도 누르지 않아도 돼요.", style = MaterialTheme.typography.headlineSmall)
                 Text("동승석에 앉으면(Virtual Console Seat Occupancy → Occupied) 앱이 SYNC를 켜요.", color = Muted)
-                direct?.let { Text("직접 바꾸기  ·  ${seconds(it.milliseconds)}초 기록", color = Muted) }
+                if (direct != null) Text("직접 바꾸기  ·  SYNC 켜짐 확인", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = { simulateSeat = true }, modifier = Modifier.heightIn(min = 54.dp)) {
                         Text("동승자 탑승 시연")
@@ -2436,10 +2433,10 @@ private fun SyncComparison(
                 val b = automatic
                 if (a != null && b != null) {
                     AdaptivePair(
-                        first = { modifier -> ComparisonResultCard("직접 바꾸기", a, "순정 공조 화면에서 직접 조작", modifier) },
+                        first = { modifier -> ComparisonResultCard("직접 바꾸기", "직접 조작", "공조 화면을 열어 SYNC를 켰어요", modifier) },
                         second = { modifier ->
-                            ComparisonResultCard("앉으면 자동으로", b,
-                                "조작 0회 · ${b.signal?.label ?: "착석 신호"}", modifier)
+                            ComparisonResultCard("앉으면 자동으로", "조작 0회",
+                                "앉자 SYNC가 켜졌어요 · ${b.signal?.label ?: "착석 신호"}", modifier)
                         },
                         matchHeight = true,
                     )
@@ -2480,13 +2477,13 @@ private fun ComparisonCard(eyebrow: String, title: String, does: String, measure
 }
 
 @Composable
-private fun ComparisonResultCard(title: String, result: TrialResult, detail: String, modifier: Modifier) {
+private fun ComparisonResultCard(title: String, headline: String, detail: String, modifier: Modifier) {
     Column(
         modifier.clip(RoundedCornerShape(16.dp)).background(Glass).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium)
-        Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall, color = OrbitBlue)
+        Text(headline, style = MaterialTheme.typography.displaySmall, color = OrbitBlue)
         Text(detail, color = Muted)
     }
 }
@@ -2746,6 +2743,7 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
         (comparison.baseline.signal != null || comparison.preset.signal != null)
     val timing = if (airflowExperiment) "탑승·하차 시 송풍 범위 변경"
         else if (comparison.task == ClimateTask.PassengerArrival) "이전 탑승 시연 기록"
+        else if (comparison.baseline.touches < 0) "자동 전환은 운전자 조작 없이 맞춰졌어요."
         else if (abs(difference) < 100) "두 화면의 완료 시간이 비슷했어요."
         else "${faster}이 ${seconds(abs(difference))}초 빨랐어요."
     Intro("공조 체험 결과", "${comparison.task.title} · $timing")
@@ -2761,7 +2759,7 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
             if (comparison.reason == SeparateTemperatureFeedback) {
                 "조작을 줄이면서 두 좌석의 온도를 따로 저장하는 안을 다음 실험에서 비교할 수 있어요."
             } else if (comparison.baseline.touches < 0) {
-                "실제 차량에서 잰 시간과 선호를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
+                "운전자가 손대야 했는지와 선호·이유를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
             } else if (airflowExperiment) {
                 "선호와 이유를 함께 보면 출시 전에 자동 전환 시점과 수동 조작이 필요한 상황을 더 살펴볼 수 있어요."
             } else {
@@ -2788,13 +2786,13 @@ private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier,
     Panel(modifier) {
         Text(label, style = MaterialTheme.typography.titleMedium)
         if (result.touches < 0) {
-            // Done in the stock climate screen: time comes from vehicle signals, taps happen outside the app.
-            Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall)
-            Text("순정 공조 화면에서 직접 조작", color = Muted)
+            // Done in the stock climate screen: the car confirms SYNC, taps happen outside the app.
+            Text("직접 조작", style = MaterialTheme.typography.displaySmall)
+            Text("순정 공조 화면을 열어 SYNC를 켰어요", color = Muted)
         } else if (showTiming && result.signal != null) {
-            // Real-car round: compare by time like the manual round.
-            Text("${seconds(result.milliseconds)}초", style = MaterialTheme.typography.displaySmall)
-            Text("조작 ${result.touches}회", color = Muted)
+            // Real-car automatic round: the point is that the driver did nothing.
+            Text("조작 ${result.touches}회", style = MaterialTheme.typography.displaySmall)
+            Text("앉자 SYNC가 켜졌어요", color = Muted)
         } else {
             Text("${result.touches}탭", style = MaterialTheme.typography.displaySmall)
             if (showTiming) Text("${seconds(result.milliseconds)}초  ·  오조작 ${result.errors}회", color = Muted)
