@@ -22,9 +22,10 @@ android {
 
     buildTypes {
         release {
+            // R8 with a package scope made the release APK crash at startup (IllegalAccessError in
+            // androidx.startup); ship the release build unoptimized so it behaves like the tested debug build.
             optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                enable = false
             }
         }
     }

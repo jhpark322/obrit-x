@@ -15,7 +15,7 @@
 | 사용 SDK | Pleos Vehicle SDK 2.3.2 · Pleos NaviHelper 3.0.5 · Android Automotive OS API |
 | 화면 테마 | 시스템 설정을 따라 다크·라이트 모드 모두 지원 |
 | 실행 방법 | [실행 방법](#실행-방법) 참고 |
-| APK | 제출용 release APK는 `apk/` 폴더에 올릴 예정입니다. 시연용 debug APK는 `app/build/outputs/apk/debug/app-debug.apk`로 빌드됩니다. |
+| APK | 제출용 release APK: [`apk/ORBIT-X-1.0-release.apk`](apk/ORBIT-X-1.0-release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/ORBIT-X-1.0-release.apk`로 설치합니다. |
 
 **목차** · [핵심 아이디어](#핵심-아이디어) · [화면 미리보기](#화면-미리보기) · [기능](#기능) · [실험 목록](#실험-목록) · [실행 방법](#실행-방법) · [시연 가이드](#시연-가이드) · [데이터와 개인정보](#데이터와-개인정보) · [향후 활용](#향후-차량-개발에-어떻게-쓰나요) · [구현 범위](#구현-범위와-sdk)
 
