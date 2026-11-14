@@ -30,7 +30,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The route Pleos navigation is guiding right now, as reported by NaviHelper. */
-internal data class RoutePlan(val name: String, val distanceKm: Float?, val minutes: Int?, val arrivalBatteryPercent: Int?)
+/** [arrivalBatteryKwh]: battery energy navigation expects to be left at the destination. */
+internal data class RoutePlan(val name: String, val distanceKm: Float?, val minutes: Int?, val arrivalBatteryKwh: Float?)
+
+/** Pleos navigation reports the energy left at the destination in Wh (e.g. 54014 = 54.0 kWh), not %. */
+private fun arrivalKwh(wh: Int): Float? = wh.takeIf { it > 0 }?.div(1_000f)
 
 internal data class RecentPlace(
     val name: String, val address: String, val latitude: Double, val longitude: Double,
@@ -71,6 +75,16 @@ internal class MissionNavigation(
             field = value
             routeState?.let(::maybeSuggestCharging)
         }
+    /** Current battery energy, used with [vehicleBatteryPercent] to turn the arrival energy into a %. */
+    var vehicleBatteryKwh: Float? = null
+
+    /** Arrival battery as a % of capacity (capacity estimated from the car's current kWh and %). */
+    fun arrivalPercent(plan: RoutePlan?): Int? {
+        val energy = plan?.arrivalBatteryKwh ?: return null
+        val kwh = vehicleBatteryKwh?.takeIf { it > 0f } ?: return null
+        val percent = vehicleBatteryPercent?.takeIf { it > 0 } ?: return null
+        return (energy / (kwh * 100f / percent) * 100f).toInt().coerceIn(0, 100)
+    }
     var recentPlaces by mutableStateOf<List<RecentPlace>?>(null)
         private set
     private val pendingCalls = mutableListOf<(NaviHelper) -> Unit>()
@@ -82,7 +96,7 @@ internal class MissionNavigation(
                     routeStartInfo.name.orEmpty(),
                     routeStartInfo.distance.takeIf { it > 0 }?.div(1_000f),
                     routeStartInfo.duration.takeIf { it > 0 }?.let { (it + 59) / 60 },
-                    routeStartInfo.remainDestinationChargingValue.takeIf { it in 0..100 },
+                    arrivalKwh(routeStartInfo.remainDestinationChargingValue),
                 )
                 // No extra taps: a route started in Pleos navigation (from ORBIT X or by hand) starts the
                 // recommended drive if none is running, and its destination is linked for automatic arrival.
@@ -98,7 +112,7 @@ internal class MissionNavigation(
                         destinationInfo.name.orEmpty().ifBlank { route?.name.orEmpty() },
                         destinationInfo.remainDistance / 1_000f,
                         destinationInfo.remainTime.takeIf { it > 0 }?.let { (it + 59) / 60 },
-                        route?.arrivalBatteryPercent,
+                        route?.arrivalBatteryKwh,
                     )
                 }
                 if (isLinking && data.activeMission != null) {
@@ -114,9 +128,12 @@ internal class MissionNavigation(
 
         override fun onRouteStateInfo(routeStateInfo: RouteStateInfo) {
             scope.launch {
-                if (!routeStateInfo.isRouting) route = null
-                else routeStateInfo.remainDestinationChargingInt.takeIf { it in 0..100 }?.let { battery ->
-                    route = (route ?: RoutePlan("", null, null, null)).copy(arrivalBatteryPercent = battery)
+                // isRouting can read false while guiding, so the guidance mode decides whether a route is up.
+                val guiding = routeStateInfo.isRouting || routeStateInfo.naviMode == NaviMode.ROUTE_GUIDING ||
+                    routeStateInfo.naviMode == NaviMode.SIMULATION_GUIDING
+                if (!guiding) route = null
+                else arrivalKwh(routeStateInfo.remainDestinationChargingInt)?.let { energy ->
+                    route = (route ?: RoutePlan("", null, null, null)).copy(arrivalBatteryKwh = energy)
                 }
                 if (isLinking) {
                     requestedMode = routeStateInfo.naviMode
@@ -365,7 +382,7 @@ internal class MissionNavigation(
      * native navigation charger search (no ORBIT X screen), so the driver can add a stop there.
      */
     private fun maybeSuggestCharging(plan: RoutePlan) {
-        val arrival = plan.arrivalBatteryPercent?.takeIf { it <= ChargingSuggestionPercent }
+        val arrival = arrivalPercent(plan)?.takeIf { it <= ChargingSuggestionPercent }
         val current = vehicleBatteryPercent?.takeIf { it <= LowBatteryPercent }
         if (arrival == null && current == null) return
         val key = plan.name.ifBlank { "route" }

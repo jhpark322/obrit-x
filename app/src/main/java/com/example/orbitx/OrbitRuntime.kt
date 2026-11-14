@@ -56,11 +56,15 @@ internal object OrbitRuntime {
         sampling = scope.launch {
             var tick = 0
             while (isActive) {
-                data.recordLeagueSample(source.readLeagueSample())
+                val sample = source.readLeagueSample()
+                data.recordLeagueSample(sample)
+                navigation?.vehicleBatteryKwh = sample?.batteryKwh
                 // Pleos navigation can report "route ended" right after "route started" (re-route), and it
                 // only pushes route state on change, so re-read it now and then instead of trusting events.
                 if (tick++ % RouteRefreshTicks == 0) navigation?.refreshRoute()
                 navigation?.vehicleBatteryPercent = source.readBatteryPercent()
+                // Pleos navigation's departure-time prediction, checked against the real arrival later.
+                data.notePredictedArrival(navigation?.route?.arrivalBatteryKwh)
                 // After arrival, once parked, ask the drive's experiment question over navigation.
                 if (!uiVisible && source.parking == ParkingStatus.Parked) ExperimentPrompt.maybePost(appContext, data)
                 delay(SampleIntervalMs)
