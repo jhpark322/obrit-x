@@ -16,7 +16,7 @@
 | 심사 기준별로 보기 | 차량특화성: 착석·공조·도어 실제 제어, 순정 내비 예측 검증, P/D 주행 제한 · 창의성: 운전자 반응을 차량 개선 근거로 바꾸는 PLAY→X-LAB 순환 · 기술 활용성: Vehicle SDK·NaviHelper·AAOS 차량 속도 연동 · 사업성: 블루멤버스 연계 보상, 그룹의 고객 검증 채널 |
 | 화면 테마 | 시스템 설정을 따라 다크·라이트 모드 모두 지원 |
 | 실행 방법 | [실행 방법](#실행-방법) 참고 |
-| APK | 제출용 release APK: [`apk/ORBIT-X-1.0-release.apk`](apk/ORBIT-X-1.0-release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/ORBIT-X-1.0-release.apk`로 설치합니다. |
+| APK | 제출용 release APK: [`apk/박준하_ORBITX_release.apk`](apk/박준하_ORBITX_release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/박준하_ORBITX_release.apk`로 설치합니다. |
 
 **목차** · [핵심 아이디어](#핵심-아이디어) · [화면 미리보기](#화면-미리보기) · [기능](#기능) · [실험 목록](#실험-목록) · [실행 방법](#실행-방법) · [시연 가이드](#시연-가이드) · [데이터와 개인정보](#데이터와-개인정보) · [향후 활용](#향후-차량-개발에-어떻게-쓰나요) · [구현 범위](#구현-범위와-sdk)
 
