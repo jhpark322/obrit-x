@@ -133,7 +133,7 @@ private const val SeparateTemperatureFeedback = "동승석 온도를 따로 맞�
 private enum class Page(val label: String) {
     Home("홈"), Play("PLAY"), Trip("드라이브"), Arrival("도착 기록"),
     Lab("X-LAB"), Insight("INSIGHT"), Points("MY ORBIT"),
-    League("주행 효율 리그"), OtherLeagues("다른 리그 구경하기"), Ota("OTA 업데이트 평가"), LabFeedback("아이디어·피드백"), Experiments("실험 목록"),
+    League("주행 효율 리그"), OtherLeagues("다른 리그 구경하기"), Ota("도어 잠금 OTA 평가"), LabFeedback("아이디어·피드백"), Experiments("실험 목록"),
     SyncMission("차량 기능 써보기"), ClimateLab("착석 연동 공조"),
 }
 
@@ -730,7 +730,7 @@ private fun MissionChecklist(
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MissionCheckRow(
-            "01", "도어 잠금 업데이트 평가", "주행 정보 화면에서 모든 도어를 잠그고 해제한 뒤 의견을 남겨요.",
+            "01", "도어 잠금 OTA 평가", "주행 정보 화면에서 모든 도어를 잠그고 해제한 뒤 의견을 남겨요.",
             otaDone, "OTA 체험", data.otaReview?.award ?: data.availableOtaAward, onOta,
         )
         MissionCheckRow(
@@ -836,8 +836,8 @@ private fun SyncMission(data: OrbitData, vehicle: VehicleAccess?, parked: Boolea
     }
     Panel {
         Eyebrow("순정 공조에서 사용하기")
-        Text("1. Pleos 하단의 온도 숫자를 눌러 앞좌석 공조를 열어요.")
-        Text("2. 현재 상태가 표시되면 순정 공조의 Sync를 한 번 눌러 상태를 바꿔 보세요.")
+        Text("1. 화면 아래 공조 버튼을 눌러 순정 공조 화면을 열어요.")
+        Text("2. 현재 상태가 표시되면 순정 공조의 SYNC를 한 번 눌러 상태를 바꿔 보세요.")
         Text("3. 공조 패널 바깥을 누르면 이 화면으로 돌아와요.")
         val status = when {
             changed -> "SYNC 변경 확인"
@@ -940,7 +940,7 @@ private fun OtaExperience(data: OrbitData, vehicle: VehicleAccess?, parked: Bool
     var feedback by rememberSaveable { mutableStateOf<String?>(null) }
     val review = data.otaReview
 
-    Text("주행 정보 화면의 도어 잠금", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+    Text("도어 잠금 OTA 평가", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
     Panel {
         Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(false to "업데이트 전", true to "업데이트 후").forEach { (updated, label) ->
@@ -1372,7 +1372,8 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                 val notes = listOfNotNull(
                     when {
                         trip.charged -> "충전 포함 구간이라 전비 제외"
-                        tripEfficiency != null && monthEfficiency != null && tripEfficiency != monthEfficiency -> {
+                        tripEfficiency != null && monthEfficiency != null &&
+                            kotlin.math.abs(tripEfficiency / monthEfficiency - 1) >= .0005 -> {
                             val diff = (tripEfficiency / monthEfficiency - 1) * 100
                             "이달 평균보다 ${efficiency(kotlin.math.abs(diff))}% ${if (diff >= 0) "좋음" else "낮음"}"
                         }
@@ -1380,8 +1381,8 @@ private fun TripReportPanel(data: OrbitData, mission: String, monthEfficiency: D
                     },
                     trip.arrivalGapKwh?.let { gap ->
                         when {
-                            gap >= .05f -> "예측보다 ${efficiency(gap.toDouble())} kWh 더 씀"
-                            gap <= -.05f -> "예측보다 ${efficiency((-gap).toDouble())} kWh 덜 씀"
+                            gap >= ArrivalGapNoticeKwh -> "예측보다 ${efficiency(gap.toDouble())} kWh 더 씀"
+                            gap <= -ArrivalGapNoticeKwh -> "예측보다 ${efficiency((-gap).toDouble())} kWh 덜 씀"
                             else -> "도착 배터리 예측과 같음"
                         }
                     },
@@ -1660,6 +1661,7 @@ private fun League(
             myRating = data.comparison?.preference,
         )
     })
+        if (mySeries?.unit == "km/kWh") LeagueArrivalInsight(data, example = mySeries == LeagueSeries.Ioniq5)
         OutlinedButton(onClick = onBrowse, modifier = Modifier.heightIn(min = 56.dp)) { Text("다른 리그 구경하기  ›") }
         if (series == null) {
             Text(if (model == null) "차종 신호를 확인할 수 없어요. 다른 리그에서 예시 순위를 볼 수 있어요."
@@ -1796,6 +1798,36 @@ private fun LeagueVehicleRecord(
             style = MaterialTheme.typography.bodyMedium,
         )
         footer()
+    }
+}
+
+/**
+ * X-LAB experiment 03 on the league: how far navigation's arrival-battery prediction was from the real
+ * arrival. My own number comes from guided drives; the same-model line is example data until a server exists.
+ */
+@Composable
+private fun LeagueArrivalInsight(data: OrbitData, example: Boolean) {
+    Panel {
+        Eyebrow("효율 인사이트  ·  도착 배터리 예측  ·  X-LAB 실험 03")
+        val average = data.arrivalGapAverageKwh
+        Text(
+            when {
+                average == null -> "내비 안내로 다녀오면 예측과 실제 도착 배터리를 비교해요"
+                abs(average) < ArrivalGapNoticeKwh -> "내 드라이브 ${data.arrivalChecks}회 · 예측과 거의 같았어요"
+                average > 0 -> "내 드라이브 ${data.arrivalChecks}회 · 평균 예측보다 ${efficiency(average.toDouble())} kWh 더 썼어요"
+                else -> "내 드라이브 ${data.arrivalChecks}회 · 평균 예측보다 ${efficiency((-average).toDouble())} kWh 덜 썼어요"
+            },
+            style = MaterialTheme.typography.titleMedium,
+            color = if (average != null && average >= ArrivalGapNoticeKwh) Amber else OrbitInk,
+        )
+        if (example) {
+            Text(
+                "같은 차종 · 예시 데이터  ·  평균 예측보다 1.2 kWh 더 씀  ·  이유 1위 공조 사용 54%",
+                color = Muted, style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Text("차종·계절별 오차와 이유를 모아 순정 내비의 도착 배터리 예측을 고치는 근거로 써요.",
+            color = Muted, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -2139,7 +2171,7 @@ private fun LabOverview(
 private fun ExperimentList(data: OrbitData) {
     Intro(
         "실험 목록",
-        "모든 실험은 주행 효율 리그와 드라이브 리포트 질문을 함께 쓰고, 실험마다 하나를 더해요. " +
+        "모든 실험은 드라이브 리포트 질문을 함께 쓰고, 숫자로 볼 수 있는 실험은 주행 효율 리그로 효과를 재요. 실험마다 하나를 더해요. " +
             "불편을 발견하고 시험한 뒤, 효과가 확인된 개선만 OTA로 배포하고 다시 확인해요.",
     )
     // Every experiment is the same bundle of settings, so new ones need no new PLAY screen.
@@ -2207,7 +2239,7 @@ private fun ClimateLab(
             data.recordCabinTrialDay()
         }
     }
-    Intro("탑승에 따라 바뀌는 공조", "X-LAB · 출시 전 체험")
+    Intro("착석 연동 공조", "X-LAB · 출시 전 체험")
     Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         listOf("자동 공조" to false, "개선안 비교" to true).forEach { (label, selected) ->
             OutlinedButton(onClick = { comparison = selected },
@@ -2484,7 +2516,7 @@ private fun ComparisonCard(eyebrow: String, title: String, does: String, measure
         Eyebrow(eyebrow)
         Text(title, style = MaterialTheme.typography.headlineSmall)
         ExperimentPlay("하는 일", does, active = true)
-        ExperimentPlay("재는 것", measures, active = true)
+        ExperimentPlay("보는 것", measures, active = true)
     }
 }
 
@@ -2699,13 +2731,6 @@ private fun LabFeedback(data: OrbitData, parked: Boolean, onPoints: () -> Unit) 
 private fun degrees(value: Float?) =
     if (value == null) "조회 불가" else String.format(Locale.KOREA, "%.1f°C", value)
 
-private fun Variant.labelFor(task: ClimateTask) = when {
-    task == ClimateTask.SyncPreset -> if (this == Variant.A) "직접 바꾸기" else "앉으면 자동으로"
-    task != ClimateTask.PassengerArrival -> title
-    this == Variant.A -> "기본 조작 재현"
-    else -> "동승석 자동 전환"
-}
-
 @Composable
 private fun AdaptivePair(
     first: @Composable (Modifier) -> Unit,
@@ -2749,19 +2774,10 @@ private fun ClimateToggle(label: String, enabled: Boolean, onClick: () -> Unit) 
 
 @Composable
 private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
-    val difference = comparison.baseline.milliseconds - comparison.preset.milliseconds
-    val faster = if (difference > 0) "B안" else "A안"
-    val airflowExperiment = comparison.task == ClimateTask.PassengerArrival &&
-        (comparison.baseline.signal != null || comparison.preset.signal != null)
-    val timing = if (airflowExperiment) "탑승·하차 시 송풍 범위 변경"
-        else if (comparison.task == ClimateTask.PassengerArrival) "이전 탑승 시연 기록"
-        else if (comparison.baseline.touches < 0) "자동 전환은 운전자 조작 없이 맞춰졌어요."
-        else if (abs(difference) < 100) "두 화면의 완료 시간이 비슷했어요."
-        else "${faster}이 ${seconds(abs(difference))}초 빨랐어요."
-    Intro("공조 체험 결과", "${comparison.task.title} · $timing")
+    Intro("공조 체험 결과", "${comparison.task.title} · 자동 전환은 운전자 조작 없이 맞춰졌어요.")
     AdaptivePair(
-        first = { modifier -> TrialMetrics("A · ${Variant.A.labelFor(comparison.task)}", comparison.baseline, modifier, comparison.task != ClimateTask.PassengerArrival) },
-        second = { modifier -> TrialMetrics("B · ${Variant.B.labelFor(comparison.task)}", comparison.preset, modifier, comparison.task != ClimateTask.PassengerArrival) },
+        first = { modifier -> TrialMetrics("A · 직접 바꾸기", comparison.baseline, modifier) },
+        second = { modifier -> TrialMetrics("B · 앉으면 자동으로", comparison.preset, modifier) },
         matchHeight = true,
     )
     Panel {
@@ -2771,12 +2787,8 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
         Text(
             if (comparison.reason == SeparateTemperatureFeedback) {
                 "조작을 줄이면서 두 좌석의 온도를 따로 저장하는 안을 다음 실험에서 비교할 수 있어요."
-            } else if (comparison.baseline.touches < 0) {
-                "운전자가 손대야 했는지와 선호·이유를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
-            } else if (airflowExperiment) {
-                "선호와 이유를 함께 보면 출시 전에 자동 전환 시점과 수동 조작이 필요한 상황을 더 살펴볼 수 있어요."
             } else {
-                "탭 수, 완료 시간, 오조작과 선호를 함께 보면 어떤 화면을 더 검증할지 판단할 수 있어요."
+                "운전자가 손대야 했는지와 선호·이유를 함께 보면, 착석 연동 자동 전환을 OTA로 배포할지 판단할 수 있어요."
             },
             color = Muted,
         )
@@ -2795,22 +2807,18 @@ private fun Insight(comparison: Comparison, award: Int, onPoints: () -> Unit) {
 }
 
 @Composable
-private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier, showTiming: Boolean) {
+private fun TrialMetrics(label: String, result: TrialResult, modifier: Modifier) {
     Panel(modifier) {
         Text(label, style = MaterialTheme.typography.titleMedium)
         if (result.touches < 0) {
             // Done in the stock climate screen: the car confirms SYNC, taps happen outside the app.
             Text("직접 조작", style = MaterialTheme.typography.displaySmall)
             Text("순정 공조 화면을 열어 SYNC를 켰어요", color = Muted)
-        } else if (showTiming && result.signal != null) {
-            // Real-car automatic round: the point is that the driver did nothing.
+        } else {
+            // Automatic round: the point is that the driver did nothing.
             Text("조작 ${result.touches}회", style = MaterialTheme.typography.displaySmall)
             Text("앉자 SYNC가 켜졌어요" + (result.signal?.let { " · ${it.label}" } ?: ""), color = Muted)
-        } else {
-            Text("${result.touches}탭", style = MaterialTheme.typography.displaySmall)
-            if (showTiming) Text("${seconds(result.milliseconds)}초  ·  오조작 ${result.errors}회", color = Muted)
         }
-        if (result.touches >= 0 && !(showTiming && result.signal != null)) result.signal?.let { Text(it.label, color = Muted) }
     }
 }
 
@@ -2867,7 +2875,7 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
     }
     Panel {
         Text("최근 참여 내역", style = MaterialTheme.typography.titleLarge)
-        if (data.lastMission == null && data.comparison == null && data.otaReview == null && data.chargingOtaReview == null &&
+        if (data.lastMission == null && data.comparison == null && data.otaReview == null &&
             data.labSubmissions.isEmpty() && data.syncMissionFeedback == null && data.cabinTrialFeedback == null
         ) {
             Text("아직 완료한 미션이나 체험이 없어요.", color = Muted)
@@ -2882,16 +2890,13 @@ private fun Points(data: OrbitData, showTitle: Boolean, canReset: Boolean, onRes
         data.comparison?.let { PointActivity("X-LAB · ${it.task.title}", data.lastLabAward) }
         data.cabinTrialFeedback?.let { PointActivity("장기 미션 · 착석 연동 공조 7일", data.cabinTrialAward, listOf(it)) }
         data.otaReview?.let {
-            PointActivity("OTA · 주행 정보 화면 도어 잠금", it.award, listOf(it.rating, it.feedback))
-        }
-        data.chargingOtaReview?.let {
-            PointActivity("OTA · 충전소 안내 업데이트", it.award, listOf("${it.rating} · ${it.feedback}"))
+            PointActivity("X-LAB · 도어 잠금 OTA 평가", it.award, listOf(it.rating, it.feedback))
         }
         data.labSubmissions.firstOrNull()?.let {
             PointActivity("X-LAB · ${it.type.title}", it.award, listOf(it.message))
         }
         data.syncMissionFeedback?.let {
-            PointActivity("PLAY · 앞좌석 온도 동기화", data.syncMissionAward, listOf(it))
+            PointActivity("미션 · 앞좌석 온도 동기화 써보기", data.syncMissionAward, listOf(it))
         }
     }
     Panel {

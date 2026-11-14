@@ -35,7 +35,7 @@ internal object ExperimentPrompt {
             // Shown right after a navigation arrival; the car UI only pops navigation-category notices over the map.
             .setCategory(Notification.CATEGORY_NAVIGATION)
             .setContentTitle(experiment.driveQuestion)
-            .setContentText("X-LAB 실험 %02d · %s · 탭 한 번으로 답해 주세요".format(experiment.number, experiment.title))
+            .setContentText("X-LAB 실험 %02d · %s".format(experiment.number, experiment.title))
             .setAutoCancel(true)
         // Notifications show at most three actions; every experiment has three short answers that fit a heads-up button.
         experiment.answers.take(3).forEachIndexed { index, answer ->
