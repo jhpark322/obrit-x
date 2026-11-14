@@ -101,7 +101,7 @@ internal fun leaguePreviewRanking(
         monthlyDistanceKm < LeagueMinimumDistanceKm || efficiency == null ||
         !efficiency.isFinite() || efficiency <= 0.0
     ) return ranking
-    return (ranking + LeagueEntry(displayName.ifBlank { "내 기록" }, efficiency, isMine = true))
+    return (ranking + LeagueEntry(displayName.ifBlank { "운전자" }, efficiency, isMine = true))
         .sortedByDescending { it.efficiency }
 }
 private const val PointUnit = 1_000

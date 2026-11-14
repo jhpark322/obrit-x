@@ -1625,7 +1625,7 @@ private fun League(
         series == null -> emptyList()
         browsing -> leaguePreviewRanking(series.entries, null, null, "")
         showDemo -> leaguePreviewRanking(
-            series.entries, data.leagueDistanceKm.toFloat(), demoEfficiency, data.displayName.ifBlank { "내 시연 기록" },
+            series.entries, data.leagueDistanceKm.toFloat(), demoEfficiency, data.displayName.ifBlank { "운전자" },
         )
         else -> leaguePreviewRanking(series.entries, data.monthlyVehicleDistanceKm, measuredEfficiency, data.displayName)
     }
