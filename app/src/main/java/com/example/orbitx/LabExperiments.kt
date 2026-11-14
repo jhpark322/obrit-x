@@ -38,7 +38,7 @@ internal val LabExperiments = listOf(
         extraPlay = "7일 써보기 장기 미션", extraReady = true,
     ),
     LabExperiment(
-        "door-lock", 2, "도어 잠금 버튼",
+        "door-lock", 2, "도어 잠금 OTA 평가",
         "OTA로 주행 정보 화면에 잠금 버튼이 생겼지만 찾기 쉬운지 몰라요.",
         stage = 3,
         leagueMetric = null,
@@ -52,7 +52,7 @@ internal val LabExperiments = listOf(
         stage = 1,
         leagueMetric = "차종별 예측·실제 도착 배터리 차이",
         driveQuestion = "도착 배터리가 예측과 다른 이유가 있었나요?",
-        answers = listOf("공조를 많이 썼어요", "길이 막히거나 바뀌었어요", "특별한 이유 없어요"),
+        answers = listOf("공조 사용", "정체·경로", "모르겠어요"),
         extraPlay = "드라이브 리포트의 예측 vs 실제 도착 배터리", extraReady = true,
     ),
     LabExperiment(

@@ -32,6 +32,9 @@ internal data class RecommendationRecord(val recommended: String, val chosen: St
 }
 
 /** One drive, measured from the odometer and battery energy at departure (P) and arrival (P). */
+/** Below this the arrival battery counts as matching the prediction. */
+internal const val ArrivalGapNoticeKwh = .05f
+
 internal data class TripReport(
     val mode: String,
     val distanceKm: Float?,
@@ -149,7 +152,7 @@ internal enum class Variant(val title: String) {
 internal enum class ClimateTask(val title: String, val startingTemperature: Float, val passengerGoal: Float) {
     PassengerArrival("동승석 탑승 시 자동 전환", 23f, 23f),
     SeatHold("동승석 온도 유지", 24f, 24f),
-    SyncPreset("앞좌석 한 번에 맞추기", 22f, 23f);
+    SyncPreset("동승자 탑승 공조 비교", 22f, 23f);
 
     val goalSync get() = this == SyncPreset
 }
@@ -380,8 +383,6 @@ internal class OrbitData(private val context: Context) {
         private set
     val availableSyncAward: Int
         get() = if (syncMissionFeedback == null) capMonthly(PointUnit, LocalDate.now()) else 0
-    var chargingOtaReview by mutableStateOf(loadOtaReview("otaChargingCard"))
-        private set
     var otaReview by mutableStateOf(loadOtaReview("otaDriveViewDoorLock"))
         private set
     var labSubmissions by mutableStateOf(loadLabSubmissions())
@@ -397,6 +398,8 @@ internal class OrbitData(private val context: Context) {
 
         balance = 0
         lastTrip = null
+        arrivalChecks = 0
+        arrivalGapAverageKwh = null
         driveJournal = emptyList()
         lastRecommendation = null
         recommendationAccepted = 0
@@ -424,7 +427,6 @@ internal class OrbitData(private val context: Context) {
         syncMissionFeedback = null
         syncMissionAward = 0
         otaReview = null
-        chargingOtaReview = null
         labSubmissions = emptyList()
 
         leagueDemoSeason = null
@@ -657,8 +659,19 @@ internal class OrbitData(private val context: Context) {
      * Keeps the first arrival-battery prediction navigation gives during a drive, i.e. the one made at
      * departure, so it can be checked against the battery the car actually reports on arrival.
      */
+    /** How many drives compared navigation's arrival prediction with the real arrival, and the mean gap. */
+    var arrivalChecks by mutableStateOf(prefs.getInt("arrivalChecks", 0))
+        private set
+    var arrivalGapAverageKwh by mutableStateOf(
+        prefs.getInt("arrivalChecks", 0).takeIf { it > 0 }?.let { prefs.getFloat("arrivalGapSum", 0f) / it },
+    )
+        private set
+
     fun notePredictedArrival(kwh: Float?) {
         if (kwh == null || !kwh.isFinite() || kwh <= 0f || activeMission == null || prefs.contains("tripPredictKwh")) return
+        // A prediction above the battery we start with is stale (made for an earlier state); skip it.
+        val now = freshVehicleSample()?.batteryKwh
+        if (now != null && kwh > now + ArrivalGapNoticeKwh) return
         prefs.edit().putFloat("tripPredictKwh", kwh).apply()
     }
 
@@ -689,6 +702,13 @@ internal class OrbitData(private val context: Context) {
             .putFloat("tripReportPredict", predicted ?: -1f).putFloat("tripReportActual", actual ?: -1f)
             .remove("tripStartKm").remove("tripStartKwh").remove("tripStartPending").remove("tripPredictKwh").apply()
         lastTrip = done
+        done.arrivalGapKwh?.let { gap ->
+            val count = arrivalChecks + 1
+            val sum = prefs.getFloat("arrivalGapSum", 0f) + gap
+            prefs.edit().putInt("arrivalChecks", count).putFloat("arrivalGapSum", sum).apply()
+            arrivalChecks = count
+            arrivalGapAverageKwh = sum / count
+        }
     }
 
     private fun loadTripReport(): TripReport? {
@@ -845,7 +865,8 @@ internal class OrbitData(private val context: Context) {
 
     /** The arrival-battery question only makes sense once the report has both numbers to compare. */
     val tripExperimentAskable: Boolean
-        get() = tripExperimentId != ArrivalBatteryExperiment || lastTrip?.arrivalGapKwh != null
+        get() = tripExperimentId != ArrivalBatteryExperiment ||
+            (lastTrip?.arrivalGapKwh?.let { kotlin.math.abs(it) >= ArrivalGapNoticeKwh } == true)
 
     fun saveExperimentAnswer(answer: String) {
         val id = tripExperimentId ?: return
@@ -987,6 +1008,9 @@ internal class OrbitData(private val context: Context) {
 
     private fun loadComparison(): Comparison? {
         if (!prefs.contains("comfortBaselineMillis")) return null
+        // Older in-app trials (timed taps, other tasks) are not comparable with the real-car SYNC A/B.
+        val task = ClimateTask.entries.firstOrNull { it.name == prefs.getString("comfortTask", null) } ?: ClimateTask.SyncPreset
+        if (task != ClimateTask.SyncPreset || prefs.getInt("comfortBaselineTouches", 0) >= 0) return null
         return Comparison(
             baseline = TrialResult(
                 prefs.getLong("comfortBaselineMillis", 0),
@@ -1002,8 +1026,7 @@ internal class OrbitData(private val context: Context) {
             ),
             preference = prefs.getString("comfortPreference", "응답 건너뜀").orEmpty(),
             reason = prefs.getString("comfortReason", "").orEmpty(),
-            task = ClimateTask.entries.firstOrNull { it.name == prefs.getString("comfortTask", null) }
-                ?: ClimateTask.SyncPreset,
+            task = task,
         )
     }
 
