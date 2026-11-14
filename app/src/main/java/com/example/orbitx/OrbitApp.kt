@@ -2118,9 +2118,54 @@ private fun Arrival(onFinish: (String?) -> Unit) {
     }
 }
 
+private val ExperimentStages = listOf("발견", "시험", "배포", "재확인")
+
+/** One improvement and where it sits in the discover → test → deploy → recheck loop. */
+@Composable
+private fun ExperimentStage(title: String, note: String, stage: Int) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(note, color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f, fill = false))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ExperimentStages.forEachIndexed { index, label ->
+                val current = index == stage
+                val shape = RoundedCornerShape(50)
+                Box(
+                    Modifier
+                        .clip(shape)
+                        .background(if (current) MaterialTheme.colorScheme.inverseSurface else OrbitPaper)
+                        .border(1.dp, if (index <= stage) MaterialTheme.colorScheme.inverseSurface else Border, shape)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            current -> MaterialTheme.colorScheme.inverseOnSurface
+                            index < stage -> OrbitInk
+                            else -> Muted
+                        },
+                    )
+                }
+                if (index < ExperimentStages.lastIndex) Text("→", color = Muted, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
 @Composable
 private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Unit, onFeedback: () -> Unit) {
     Intro("X-LAB", "고객의 제안과 새로운 아이디어를 직접 써보고, 다음 변화를 함께 만들어요.")
+    Panel {
+        Text("개선이 어디까지 왔나요", style = MaterialTheme.typography.titleLarge)
+        Text("불편을 발견하고, X-LAB에서 시험하고, 효과가 확인된 개선만 OTA로 배포한 뒤 다시 확인해요.", color = Muted)
+        ExperimentStage("착석 연동 공조", "빈 좌석 공조 낭비를 X-LAB 체험과 같은 차종 비교로 시험 중", stage = 1)
+        ExperimentStage("도어 잠금 버튼", "OTA로 배포된 버튼을 실제 도어로 써 보고 평가 중", stage = 3)
+        ExperimentStage("다음 실험 4건", "지금 Pleos Connect에서 불편하다고 알려진 점", stage = 0)
+    }
     AdaptivePair(
         first = { modifier ->
             FeatureCard(
@@ -2166,7 +2211,7 @@ private fun LabOverview(data: OrbitData, onClimate: () -> Unit, onOta: () -> Uni
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     Text(description, color = Muted, style = MaterialTheme.typography.bodyMedium)
                 }
-                Text("준비 중", color = Muted, style = MaterialTheme.typography.labelLarge)
+                Text("발견", color = Muted, style = MaterialTheme.typography.labelLarge)
             }
         }
     }
