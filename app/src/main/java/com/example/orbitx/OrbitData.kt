@@ -2,6 +2,7 @@ package com.example.orbitx
 
 import android.content.Context
 import android.os.SystemClock
+import android.os.UserManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -325,12 +326,17 @@ internal class OrbitData(context: Context) {
         }
     }
 
-    var displayName by mutableStateOf(prefs.getString("displayName", "").orEmpty())
-        private set
+    /** Name of the signed-in Pleos profile (the Android user), used unless the driver sets one in MY ORBIT. */
+    val profileName: String = runCatching {
+        context.getSystemService(UserManager::class.java)?.userName.orEmpty().trim()
+    }.getOrDefault("")
+    private var customName by mutableStateOf(prefs.getString("displayName", "").orEmpty())
+    val displayName: String get() = customName.ifBlank { profileName }
+    val usesProfileName: Boolean get() = customName.isBlank()
 
     fun saveDisplayName(value: String) {
-        displayName = value.trim()
-        prefs.edit().putString("displayName", displayName).apply()
+        customName = value.trim()
+        prefs.edit().putString("displayName", customName).apply()
     }
 
     var balance by mutableStateOf(prefs.getInt("balance", 0))
@@ -458,7 +464,7 @@ internal class OrbitData(context: Context) {
 
     fun resetActivityRecords() {
         prefs.edit().clear()
-            .putString("displayName", displayName)
+            .putString("displayName", customName)
             .putBoolean("automaticCabinClimate", automaticCabinClimate)
             .putBoolean("thousandPointScale", true)
             .putBoolean("flatDriveAward", true)
