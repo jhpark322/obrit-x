@@ -13,7 +13,6 @@
 | 앱 | ORBIT X · Android Automotive (Kotlin, Jetpack Compose) |
 | 개발·테스트 환경 | **Pleos Connect v2.1.0 에뮬레이터** · Android 14 (API 34) · x86_64 · **2560 × 1440 px, 160 dpi** (에뮬레이터 실측) |
 | 사용 SDK | Pleos Vehicle SDK 2.3.2 · Pleos NaviHelper 3.0.5 · Android Automotive OS API |
-| 심사 기준별로 보기 | 차량특화성: 착석·공조·도어 실제 제어, 순정 내비 예측 검증, P/D 주행 제한 · 창의성: 운전자 반응을 차량 개선 근거로 바꾸는 PLAY→X-LAB 순환 · 기술 활용성: Vehicle SDK·NaviHelper·AAOS 차량 속도 연동 · 사업성: 블루멤버스 연계 보상, 그룹의 고객 검증 채널 |
 | 화면 테마 | 시스템 설정을 따라 다크·라이트 모드 모두 지원 |
 | 실행 방법 | [실행 방법](#실행-방법) 참고 |
 | APK | 제출용 release APK: [`apk/박준하_ORBITX_release.apk`](apk/박준하_ORBITX_release.apk) (versionName 1.0, 개발용 debug 키로 서명). `adb install -r --user 10 apk/박준하_ORBITX_release.apk`로 설치합니다. |
